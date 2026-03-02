@@ -123,9 +123,8 @@ pub fn table_get_row_id(table_id: usize) -> i32 {
     return GLOBALS
         .with_db_mut(|db| {
             let key = pop_from_something_stack()?;
-            let table = db.get_table(table_id)?;
-            let row = table.get_row_by_key(&key)?;
-            return Some(row.id as i32);
+            let row_id = db.get_row_by_key(table_id, &key)?;
+            return Some(row_id as i32);
         })
         .unwrap_or(None)
         .unwrap_or(-1);
@@ -133,9 +132,7 @@ pub fn table_get_row_id(table_id: usize) -> i32 {
 #[wasm_bindgen]
 pub fn table_clear(table_id: usize) {
     GLOBALS.with_db_mut(|db| {
-        if let Some(table) = db.get_table_mut(table_id) {
-            table.clear();
-        }
+        db.clear_table(table_id);
     });
 }
 
@@ -158,9 +155,8 @@ pub fn table_get_something(table: usize, col: usize, row_id: u32) {
 
 fn _table_get_something(table: usize, col: usize, row_id: u32) -> Option<()> {
     return GLOBALS.with_db_mut(|db| {
-        let table = db.get_table(table)?;
-        let row = table.get_row(row_id)?;
-        push_to_js_stack(row.get(col));
+        let value = db.get_row_value(table, row_id, col)?;
+        push_to_js_stack(&value);
         return Some(());
     })?;
 }
@@ -172,10 +168,9 @@ pub fn table_get_row(table: usize, row_id: u32) {
 
 fn _table_get_row(table: usize, row_id: u32) -> Option<()> {
     return GLOBALS.with_db_mut(|db| {
-        let table = db.get_table(table)?;
-        let row = table.get_row(row_id)?;
-        for item in row.iter() {
-            push_to_js_stack(&item);
+        let values = db.get_row_values(table, row_id)?;
+        for item in &values {
+            push_to_js_stack(item);
         }
         return Some(());
     })?;
@@ -220,8 +215,7 @@ pub fn table_create_row(table: usize) -> i32 {
     let row_id = GLOBALS
         .with_db_mut(|db| {
             let key = pop_from_something_stack()?;
-            let table = db.get_table_mut(table)?;
-            return Some(table.create_row(key) as i32);
+            return db.create_row(table, key).map(|id| id as i32);
         })
         .unwrap_or(None)
         .unwrap_or(-1);
@@ -232,8 +226,7 @@ pub fn table_create_row(table: usize) -> i32 {
 pub fn table_with_col_equals(table: usize, col: usize) {
     GLOBALS.with_db_mut(|db| {
         let value = pop_from_something_stack()?;
-        let table = db.get_table(table)?;
-        let rows = table.with_cols_equal_to(col, value);
+        let rows = db.with_cols_equal_to(table, col, value)?;
         for row_id in rows {
             push_to_js_stack(&Something::Int(row_id as i32));
         }

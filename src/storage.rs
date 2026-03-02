@@ -185,19 +185,54 @@ impl Database {
         return None;
     }
 
-    pub fn get_table_mut(&mut self, table_id: usize) -> Option<&mut Table> {
+    fn get_table_mut(&mut self, table_id: usize) -> Option<&mut Table> {
         let thing = self.tables.get_mut(table_id)?;
         return Some(thing);
     }
 
-    pub fn get_table<'a>(&'a self, table_id: usize) -> Option<&'a Table> {
-        let thing = self.tables.get(table_id)?;
-        return Some(thing);
+    // Wrapper methods that don't expose Table or Row structs
+    pub fn get_row_by_key(&self, table_id: usize, key: &Something) -> Option<u32> {
+        let table = self.tables.get(table_id)?;
+        let row = table.get_row_by_key(key)?;
+        return Some(row.id);
+    }
+
+    pub fn clear_table(&mut self, table_id: usize) -> Option<()> {
+        let table = self.tables.get_mut(table_id)?;
+        table.clear();
+        return Some(());
+    }
+
+    pub fn get_row_value(&self, table_id: usize, row_id: u32, col: usize) -> Option<Something> {
+        let table = self.tables.get(table_id)?;
+        let row = table.get_row(row_id)?;
+        return Some(row.get(col).clone());
+    }
+
+    pub fn get_row_values(&self, table_id: usize, row_id: u32) -> Option<Vec<Something>> {
+        let table = self.tables.get(table_id)?;
+        let row = table.get_row(row_id)?;
+        return Some(row.iter().cloned().collect());
+    }
+
+    pub fn create_row(&mut self, table_id: usize, key: Something) -> Option<u32> {
+        let table = self.tables.get_mut(table_id)?;
+        return Some(table.create_row(key));
+    }
+
+    pub fn with_cols_equal_to(
+        &self,
+        table_id: usize,
+        col: usize,
+        value: Something,
+    ) -> Option<Vec<u32>> {
+        let table = self.tables.get(table_id)?;
+        return Some(table.with_cols_equal_to(col, value));
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Table {
+struct Table {
     items: HashMap<Something, u32>,
     notifications: Vec<ListenerID>,
     rows: RowsCollection,
@@ -302,17 +337,6 @@ impl Table {
             let row_id = self.items.get(key).unwrap();
             self.insert_at(*row_id, value, index);
         }
-    }
-
-    pub fn remove(&mut self, row_id: u32) {
-        let row = self.rows.remove(&row_id);
-        if let Some(row) = row {
-            row.notify(&mut self.notifications);
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        return self.items.len();
     }
 }
 
