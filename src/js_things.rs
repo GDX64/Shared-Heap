@@ -69,9 +69,9 @@ impl GlobalState {
         return self.db.lock.pointer();
     }
 
-    fn with_db_mut<R, F: FnOnce(&mut Database) -> R>(&self, f: F) -> Option<R> {
+    fn with_db_mut<R, F: FnOnce(&mut Database) -> R>(&self, f: F) -> R {
         let mut state = self.db.write();
-        return Some(f(&mut state));
+        return f(&mut state);
     }
 }
 
@@ -110,12 +110,10 @@ pub fn start() {
 
 #[wasm_bindgen]
 pub fn table_create() -> usize {
-    return GLOBALS
-        .with_db_mut(|db| {
-            let name = pop_from_something_stack().expect("there should be a name for the table");
-            return db.create_table(name);
-        })
-        .unwrap_or(0);
+    return GLOBALS.with_db_mut(|db| {
+        let name = pop_from_something_stack().expect("there should be a name for the table");
+        return db.create_table(name);
+    });
 }
 
 #[wasm_bindgen]
@@ -126,7 +124,6 @@ pub fn table_get_row_id(table_id: usize) -> i32 {
             let row_id = db.get_row_by_key(table_id, &key)?;
             return Some(row_id as i32);
         })
-        .unwrap_or(None)
         .unwrap_or(-1);
 }
 #[wasm_bindgen]
@@ -143,7 +140,6 @@ pub fn table_get_id_from_name() -> i32 {
         .with_db_mut(|db| {
             return db.get_table_id(name);
         })
-        .unwrap_or(None)
         .map(|id| id as i32)
         .unwrap_or(-1);
 }
@@ -158,7 +154,7 @@ fn _table_get_something(table: usize, col: usize, row_id: u32) -> Option<()> {
         let value = db.get_row_value(table, row_id, col)?;
         push_to_js_stack(&value);
         return Some(());
-    })?;
+    });
 }
 
 #[wasm_bindgen]
@@ -173,7 +169,7 @@ fn _table_get_row(table: usize, row_id: u32) -> Option<()> {
             push_to_js_stack(item);
         }
         return Some(());
-    })?;
+    });
 }
 
 #[wasm_bindgen]
@@ -217,7 +213,6 @@ pub fn table_create_row(table: usize) -> i32 {
             let key = pop_from_something_stack()?;
             return db.create_row(table, key).map(|id| id as i32);
         })
-        .unwrap_or(None)
         .unwrap_or(-1);
     return row_id;
 }
@@ -262,11 +257,9 @@ pub fn table_remove_listener(table_id: usize, listener_id: u32, row_id: u32) {
 
 #[wasm_bindgen]
 pub fn db_take_notifications() {
-    let Some(notifications) = GLOBALS.with_db_mut(|db| {
+    let notifications = GLOBALS.with_db_mut(|db| {
         return db.take_notifications(worker_id() as u8);
-    }) else {
-        return;
-    };
+    });
 
     for notification in notifications {
         safe_put_i32(notification);
@@ -278,7 +271,7 @@ pub fn table_add_listener_to_row(table_id: usize, row_id: u32) -> i32 {
     fn inner(table_id: usize, row_id: u32) -> Option<ListenerID> {
         let id = GLOBALS.with_db_mut(|db| {
             return db.add_listener_to(table_id, row_id);
-        })?;
+        });
         return id;
     }
     return inner(table_id, row_id).map(|id| id.to_i32()).unwrap_or(-1);
