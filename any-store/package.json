@@ -9,7 +9,7 @@
   },
   "homepage": "https://github.com/GDX64/any-store#readme",
   "private": false,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "files": [
     "dist"
@@ -51,9 +51,10 @@
     "storage",
     "embedded",
     "database",
-    "webworkers",
-    "shared-memory",
-    "shared-array-buffer",
-    "wasm"
+    "WebWorkers",
+    "shared memory",
+    "SharedArrayBuffer",
+    "wasm",
+    "WebAssembly"
   ]
 }
