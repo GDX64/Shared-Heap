@@ -145,6 +145,13 @@ describe("benchmark counts", async () => {
     });
   });
 
+  let count = 0;
+  bench("normal count", () => {
+    for (let i = 0; i < N; i++) {
+      count = count + 1;
+    }
+  });
+
   const sqliteDB = new DatabaseSync(":memory:");
   sqliteDB.exec(`pragma journal_mode = WAL;`);
   sqliteDB.exec(`CREATE TABLE test (id INTEGER PRIMARY KEY, count INTEGER);`);

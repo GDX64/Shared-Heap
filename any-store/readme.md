@@ -48,6 +48,28 @@ row.delete();
 console.log(row.age); // null
 ```
 
+## Who is this library for?
+
+The main goal of this library is to provide a simple key-value storage that can be accessed synchronously from the main thread and workers with good enough performance. While sharing data between threads is often not advised, in some cases it is extremely useful and simplifies implementation.
+
+## Features
+
+- [x] Fast in-memory key-value storage
+- [x] Synchronous access from main thread and workers
+- [x] Type-safe
+- [x] Reactive listeners for row changes
+- [x] Caching mode for performance
+- [x] Atomic operations with locks
+- [x] Async locks for non-blocking operations in main thread
+- [ ] Multiple readers, single writer concurrency model
+- [ ] Replication
+- [ ] Batch writes
+- [ ] Batch reads
+
+## Performance
+
+To give a sense of performance, tested on node 24 on Intel i5-10400, we could reach about 10 million count increments per second, thats about 30x faster than sqlite in memory, and 60x slower than just counting on a variable. 
+
 ## Key Types
 
 Keys must be created using these helper functions:
