@@ -134,11 +134,15 @@ describe("benchmark counts", async () => {
   const table = db.createTable("counter", {
     count: "i32",
   });
-
+  const N = 10_000;
   const row = table.createRow(AnyStore.i32(0));
   bench("count on db", () => {
-    const current = row.count ?? 0;
-    row.count = current + 1;
+    db.withLock(() => {
+      for (let i = 0; i < N; i++) {
+        const current = row.count ?? 0;
+        row.count = current + 1;
+      }
+    });
   });
 
   const sqliteDB = new DatabaseSync(":memory:");
@@ -150,7 +154,9 @@ describe("benchmark counts", async () => {
     `UPDATE test SET count = ? WHERE id = 0;`,
   );
   bench("count on sqlite", () => {
-    const row = stmt.get();
-    updateStmt.run(Number(row?.count) + 1);
+    for (let i = 0; i < N; i++) {
+      const row = stmt.get();
+      updateStmt.run(Number(row?.count) + 1);
+    }
   });
 });

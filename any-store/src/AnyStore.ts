@@ -268,6 +268,7 @@ export class AnyStore {
     tableID: number,
     rowID: number,
     col: number,
+    _tag?: Something["tag"],
   ): Something["value"] | null {
     this.ops.tableGetSomething(tableID, col, rowID);
     const value = popObjectFromStack();

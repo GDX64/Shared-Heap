@@ -22,7 +22,7 @@ export class Table<T extends ColMap> {
       const set: any = new Function(
         "value",
         `
-        this.table._insert(this.rowID, value, "${col}", "${tag}");
+        this.table._insert(this.rowID, value, "${tag}", ${colIndex});
         return value;
         `,
       );
@@ -32,7 +32,7 @@ export class Table<T extends ColMap> {
           if(this.cache) {
             return this.cache[${colIndex}];
           }
-          return this.table.wdb.getFromTable(this.table.tableID, this.rowID, ${colIndex});
+          return this.table.wdb.getFromTable(this.table.tableID, this.rowID, ${colIndex}, "${tag}");
         }`);
 
       Object.defineProperties(ThisRow.prototype as any, {
@@ -64,15 +64,8 @@ export class Table<T extends ColMap> {
     return this.wdb.getRowFromTable(this.tableID, rowID);
   }
 
-  _insert(rowID: number, value: unknown, colName: keyof T) {
-    const col = this.colMap.get(colName as string);
-    this.wdb.insertOnTable(
-      this.tableID,
-      col!,
-      rowID,
-      value,
-      this.tagOf(colName),
-    );
+  _insert(rowID: number, value: unknown, tag: Something["tag"], col: number) {
+    this.wdb.insertOnTable(this.tableID, col, rowID, value, tag);
   }
 
   removeListenerFromRow(listenerID: number, rowID: number) {

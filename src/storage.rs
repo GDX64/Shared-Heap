@@ -1,7 +1,7 @@
 use crate::{extern_functions::worker_id, value::Something};
 use std::{
     collections::{HashMap, HashSet},
-    hash::Hash,
+    hash::{BuildHasher, Hash, Hasher},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash, PartialOrd, Ord)]
@@ -342,14 +342,14 @@ impl Table {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RowsCollection {
-    rows: HashMap<u32, Row>,
+    rows: HashMap<u32, Row, FastIDHasher>,
     next_id: usize,
 }
 
 impl RowsCollection {
     pub fn new() -> Self {
         return RowsCollection {
-            rows: HashMap::new(),
+            rows: HashMap::with_hasher(FastIDHasher { state: 0 }),
             next_id: 0,
         };
     }
@@ -376,5 +376,39 @@ impl RowsCollection {
 
     pub fn iter(&self) -> impl Iterator<Item = (u32, &Row)> {
         return self.rows.iter().map(|(id, row)| (*id, row));
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FastIDHasher {
+    state: u64,
+}
+
+impl BuildHasher for FastIDHasher {
+    type Hasher = Self;
+
+    fn build_hasher(&self) -> Self::Hasher {
+        return FastIDHasher { state: 0 };
+    }
+}
+
+impl Hasher for FastIDHasher {
+    #[inline(always)]
+    fn finish(&self) -> u64 {
+        self.state
+    }
+
+    #[inline(always)]
+    fn write_u32(&mut self, i: u32) {
+        // Fast multiplicative hash using golden ratio constant
+        // Provides excellent distribution with minimal performance cost
+        let hash = (i as u64).wrapping_mul(0x9e3779b97f4a7c15);
+        // Additional mixing for better avalanche effect
+        self.state = hash ^ (hash >> 32);
+    }
+
+    #[inline(always)]
+    fn write(&mut self, _bytes: &[u8]) {
+        panic!("FastIDHasher only supports u32");
     }
 }
