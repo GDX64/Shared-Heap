@@ -43,13 +43,19 @@ describe("benchmarks inserts", async () => {
   sqliteDB.exec(
     `CREATE TABLE ${tableName} (id INTEGER PRIMARY KEY, name TEXT, age INTEGER, height REAL);`,
   );
+  let stmt = sqliteDB.prepare(
+    `INSERT INTO ${tableName} (id, name, age, height) VALUES (?, ?, ?, ?);`,
+  );
+  mockData.forEach((item, index) => {
+    stmt.run(index, item.name, item.age, item.height);
+  });
+  stmt = sqliteDB.prepare(
+    `REPLACE INTO ${tableName} (id, name, age, height) VALUES (?, ?, ?, ?);`,
+  );
 
   bench("insert on sqlite", () => {
     // Wrap all inserts in a single transaction
     sqliteDB.exec("BEGIN TRANSACTION");
-    const stmt = sqliteDB.prepare(
-      `INSERT OR REPLACE INTO ${tableName} (id, name, age, height) VALUES (?, ?, ?, ?);`,
-    );
     mockData.forEach((item, index) => {
       stmt.run(index, item.name, item.age, item.height);
     });
