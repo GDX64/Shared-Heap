@@ -213,7 +213,7 @@ fn wait(lock_state: &AtomicI32) {
         #[cfg(target_arch = "wasm32")]
         unsafe {
             let ptr = lock_state.as_ptr();
-            std::arch::wasm32::memory_atomic_wait32(ptr, 1, 1000_000);
+            std::arch::wasm32::memory_atomic_wait32(ptr, UNLOCKED, 1000_000);
         }
     }
 }
