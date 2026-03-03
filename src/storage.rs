@@ -86,6 +86,7 @@ pub struct Database {
     next_listener_id: u32,
 }
 
+#[derive(Debug, Clone)]
 pub enum Operation {
     Insert {
         table_id: usize,

@@ -144,6 +144,15 @@ export class AnyStore {
     return this.ops.exports.table_create_row(tableID);
   }
 
+  withBatch<T>(fn: () => T): T {
+    try {
+      this.ops.exports.start_batch();
+      return fn();
+    } finally {
+      this.ops.exports.end_batch();
+    }
+  }
+
   /**
    * This function will probably be less performant than withLock
    * but it wont block the current thread in the case the lock

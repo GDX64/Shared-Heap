@@ -61,9 +61,9 @@ The main goal of this library is to provide a simple key-value storage that can 
 - [x] Caching mode for performance
 - [x] Atomic operations with locks
 - [x] Async locks for non-blocking operations in main thread
+- [x] Batch writes
 - [ ] Multiple readers, single writer concurrency model
 - [ ] Replication
-- [ ] Batch writes
 - [ ] Batch reads
 
 ## Performance

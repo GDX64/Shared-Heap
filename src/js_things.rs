@@ -6,7 +6,10 @@ use crate::{
     storage::{Database, ListenerID, Operation},
     value::Something,
 };
-use std::{cell::RefCell, sync::LazyLock};
+use std::{
+    cell::{RefCell, UnsafeCell},
+    sync::LazyLock,
+};
 
 struct SomethingStack {
     stack: Vec<Something>,
@@ -28,6 +31,12 @@ impl SomethingStack {
 
 thread_local! {
     static SOMETHING_STACK: RefCell<SomethingStack> = RefCell::new(SomethingStack::new());
+    static IS_BATCHING: UnsafeCell<bool> = UnsafeCell::new(false);
+    static BATCHED_OPERATIONS: RefCell<Vec<Operation>> = RefCell::new(Vec::new());
+}
+
+fn is_batching() -> bool {
+    return IS_BATCHING.with(|v| unsafe { *v.get() });
 }
 
 fn pop_something() -> Option<Something> {
@@ -177,14 +186,19 @@ pub fn table_insert(table: usize, col: usize, row_id: u32) {
     let Some(value) = pop_from_something_stack() else {
         return;
     };
-    GLOBALS.with_db_mut(|db| {
-        db.operation(Operation::Insert {
-            table_id: table,
-            row_id: row_id,
-            value,
-            index: col,
+    let op = Operation::Insert {
+        table_id: table,
+        row_id: row_id,
+        value,
+        index: col,
+    };
+    if is_batching() {
+        BATCHED_OPERATIONS.with_borrow_mut(|ops| ops.push(op));
+    } else {
+        GLOBALS.with_db_mut(|db| {
+            db.operation(op);
         });
-    });
+    }
 }
 
 #[wasm_bindgen]
@@ -243,9 +257,35 @@ pub fn something_push_null_to_stack() {
 
 #[wasm_bindgen]
 pub fn delete_row_from_table(table_id: usize, row_id: u32) {
-    GLOBALS.with_db_mut(|db| {
-        db.operation(Operation::RowDelete { table_id, row_id });
+    let operation = Operation::RowDelete { table_id, row_id };
+    if is_batching() {
+        BATCHED_OPERATIONS.with_borrow_mut(|ops| ops.push(operation));
+    } else {
+        GLOBALS.with_db_mut(|db| {
+            db.operation(operation);
+        });
+    }
+}
+
+#[wasm_bindgen]
+pub fn start_batch() {
+    IS_BATCHING.with(|v| unsafe { *v.get() = true });
+}
+
+#[wasm_bindgen]
+pub fn end_batch() {
+    let operations = BATCHED_OPERATIONS.with_borrow_mut(|ops| {
+        let ops_clone = ops.clone();
+        ops.clear();
+        return ops_clone;
     });
+    GLOBALS.with_db_mut(|db| {
+        for op in operations {
+            db.operation(op);
+        }
+    });
+
+    IS_BATCHING.with(|v| unsafe { *v.get() = false });
 }
 
 #[wasm_bindgen]

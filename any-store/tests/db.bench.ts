@@ -20,12 +20,16 @@ describe("benchmarks inserts", async () => {
     height: "f64",
   });
 
-  bench("insert on db", async () => {
-    db.withLock(() => {
-      mockData.forEach((item, index) => {
-        const key = AnyStore.i32(index);
-        const row = table.createRow(key);
+  const rows = mockData.map((_, index) => {
+    const key = AnyStore.i32(index);
+    const row = table.createRow(key);
+    return row;
+  });
 
+  bench("insert on db", async () => {
+    db.withBatch(() => {
+      rows.forEach((row, index) => {
+        const item = mockData[index];
         row.name = item.name;
         row.age = item.age;
         row.height = item.height;

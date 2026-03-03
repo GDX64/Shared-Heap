@@ -127,6 +127,23 @@ describe("Database Module", () => {
     }
   });
 
+  test("batch operations", async () => {
+    const db = await AnyStore.create();
+    const table = db.createTable("test_table", {
+      name: "string",
+      age: "i32",
+    });
+    const row = table.createRow(AnyStore.i32(1));
+    db.withBatch(() => {
+      row.name = "Alice";
+      row.age = 30;
+      expect(row.name).toBeNull();
+      expect(row.age).toBeNull();
+    });
+    expect(row.name).toBe("Alice");
+    expect(row.age).toBe(30);
+  });
+
   test("add listener to row", async () => {
     const wdb = await AnyStore.create();
     const table = wdb.createTable("test_table", {
