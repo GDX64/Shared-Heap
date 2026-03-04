@@ -35,9 +35,11 @@ export class AnyStore {
     return new AnyStore(mod, workerData.memory);
   }
 
-  createObject() {
+  createObject<T>(initial: T): T {
     const id = this.mod.create_object();
-    return createProxyForObject(id, this);
+    const obj = createProxyForObject(id, this);
+    Object.assign(obj, initial);
+    return obj;
   }
 
   getObjProperty(objID: number, prop: number): Something["value"] {
