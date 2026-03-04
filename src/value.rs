@@ -14,6 +14,7 @@ pub enum Something {
     Float(f64),
     String(Vec<u8>),
     Blob(Vec<u8>),
+    Ref(u32),
     Null,
 }
 
@@ -32,6 +33,7 @@ impl Something {
             Null => NULL_TAG,
             Float(_) => FLOAT_TAG,
             Blob(_) => BLOB_TAG,
+            Ref(_) => ROW_TAG,
         }
     }
 
@@ -59,23 +61,11 @@ impl Hash for Something {
                 v.hash(state);
             }
             Null => {}
+            Ref(v) => {
+                v.hash(state);
+            }
         }
     }
 }
 
 impl Eq for Something {}
-impl Ord for Something {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        use Something::*;
-        match (self, other) {
-            (Int(a), Int(b)) => a.cmp(b),
-            (String(a), String(b)) => a.cmp(b),
-            (Float(a), Float(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
-            (Blob(a), Blob(b)) => a.cmp(b),
-            (Null, Null) => std::cmp::Ordering::Equal,
-            (Null, _) => std::cmp::Ordering::Less,
-            (_, Null) => std::cmp::Ordering::Greater,
-            _ => panic!("Unreachable comparison case"),
-        }
-    }
-}

@@ -1,415 +1,61 @@
-use crate::{extern_functions::worker_id, value::Something};
-use std::{
-    collections::{HashMap, HashSet},
-    hash::{BuildHasher, Hash, Hasher},
-};
+use std::collections::HashMap;
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash, PartialOrd, Ord)]
-pub struct ListenerID {
-    id: u32,
-    worker: u8,
+use crate::value::Something;
+
+pub struct Object {
+    properties: HashMap<u32, Something>,
 }
 
-impl ListenerID {
-    fn new(id: u32, worker: u8) -> Self {
-        ListenerID { id, worker }
-    }
-
-    fn is_from_worker(&self, worker_id: u8) -> bool {
-        return self.worker == worker_id;
-    }
-
-    pub fn to_i32(&self) -> i32 {
-        return self.id as i32;
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub struct Row {
-    values: Vec<Something>,
-    listeners: Option<Vec<ListenerID>>,
-    key: Something,
-    pub id: u32,
-}
-
-impl Row {
-    pub fn new(key: Something) -> Self {
-        Row {
-            values: Vec::new(),
-            listeners: None,
-            key,
-            id: 0,
-        }
-    }
-
-    pub fn remove_listener(&mut self, listener_id: ListenerID) -> Option<()> {
-        if let Some(listeners) = &mut self.listeners {
-            listeners.retain(|id| *id != listener_id);
-            return Some(());
-        }
-        return None;
-    }
-
-    pub fn add_listener(&mut self, listener_id: ListenerID) {
-        if let Some(listeners) = &mut self.listeners {
-            listeners.push(listener_id);
-        } else {
-            self.listeners = Some(vec![listener_id]);
-        }
-    }
-
-    pub fn notify(&self, arr: &mut Vec<ListenerID>) {
-        if let Some(listeners) = &self.listeners {
-            arr.extend_from_slice(listeners);
-        }
-    }
-
-    pub fn insert_at(&mut self, value: Something, index: usize) {
-        if self.values.len() <= index {
-            self.values.resize(index + 1, Something::Null);
-        }
-        self.values[index] = value;
-    }
-
-    pub fn get(&self, index: usize) -> &Something {
-        return self.values.get(index).unwrap_or(&Something::Null);
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &Something> {
-        return self.values.iter();
-    }
-}
-
-pub struct Database {
-    last_table_id: usize,
-    tables: Vec<Table>,
-    next_listener_id: u32,
-}
-
-#[derive(Debug, Clone)]
-pub enum Operation {
-    Insert {
-        table_id: usize,
-        row_id: u32,
-        value: Something,
-        index: usize,
-    },
-    RowDelete {
-        table_id: usize,
-        row_id: u32,
-    },
-}
-
-const NAMES_TABLE_INDEX: usize = 0;
-
-impl Database {
+impl Object {
     pub fn new() -> Self {
-        let mut db = Database {
-            last_table_id: 0,
-            tables: Vec::new(),
-            next_listener_id: 0,
-        };
-        db.tables.push(Table::new());
-        return db;
-    }
-
-    pub fn take_notifications(&mut self, worker_id: u8) -> Vec<i32> {
-        let notifications: HashSet<i32> = self
-            .tables
-            .iter_mut()
-            .flat_map(|table| {
-                return table.take_notifications(worker_id).into_iter();
-            })
-            .map(|id| id.to_i32())
-            .collect();
-
-        return notifications.into_iter().collect();
-    }
-
-    pub fn operation(&mut self, op: Operation) {
-        match op {
-            Operation::Insert {
-                table_id,
-                row_id,
-                value,
-                index,
-            } => {
-                self.get_table_mut(table_id).map(|table| {
-                    return table.insert_at(row_id, value, index);
-                });
-            }
-            Operation::RowDelete { table_id, row_id } => {
-                self.get_table_mut(table_id).map(|table| {
-                    table.delete_row(row_id);
-                });
-            }
+        Object {
+            properties: HashMap::new(),
         }
     }
 
-    pub fn remove_listener(
-        &mut self,
-        table_id: usize,
-        row_id: u32,
-        listener_id: u32,
-    ) -> Option<()> {
-        let listener_id = ListenerID::new(listener_id, worker_id() as u8);
-        self.tables
-            .get_mut(table_id)?
-            .remove_listener(row_id, listener_id);
-        return Some(());
+    pub fn set_property(&mut self, key: u32, value: Something) {
+        self.properties.insert(key, value);
     }
 
-    pub fn add_listener_to(&mut self, table_id: usize, row_id: u32) -> Option<ListenerID> {
-        let table = self.tables.get_mut(table_id)?;
-        let listener_id = ListenerID::new(self.next_listener_id, worker_id() as u8);
-        self.next_listener_id += 1;
-        table.add_listener(listener_id, row_id)?;
-        return Some(listener_id);
-    }
-
-    pub fn create_table(&mut self, name: Something) -> usize {
-        self.last_table_id += 1;
-        let table_id = self.last_table_id;
-        self.tables.insert(table_id, Table::new());
-        self.tables.get_mut(NAMES_TABLE_INDEX).map(|table| {
-            table.insert_at_by_key(&name, Something::Int(table_id as i32), 0);
-        });
-        return table_id;
-    }
-
-    pub fn get_table_id(&self, name: Something) -> Option<usize> {
-        let table = self.tables.get(NAMES_TABLE_INDEX)?;
-        let row = table.get_row_by_key(&name)?;
-        if let Something::Int(id) = row.get(0) {
-            return Some(*id as usize);
-        }
-        return None;
-    }
-
-    fn get_table_mut(&mut self, table_id: usize) -> Option<&mut Table> {
-        let thing = self.tables.get_mut(table_id)?;
-        return Some(thing);
-    }
-
-    // Wrapper methods that don't expose Table or Row structs
-    pub fn get_row_by_key(&self, table_id: usize, key: &Something) -> Option<u32> {
-        let table = self.tables.get(table_id)?;
-        let row = table.get_row_by_key(key)?;
-        return Some(row.id);
-    }
-
-    pub fn clear_table(&mut self, table_id: usize) -> Option<()> {
-        let table = self.tables.get_mut(table_id)?;
-        table.clear();
-        return Some(());
-    }
-
-    pub fn get_row_value(&self, table_id: usize, row_id: u32, col: usize) -> Option<Something> {
-        let table = self.tables.get(table_id)?;
-        let row = table.get_row(row_id)?;
-        return Some(row.get(col).clone());
-    }
-
-    pub fn get_row_values(&self, table_id: usize, row_id: u32) -> Option<Vec<Something>> {
-        let table = self.tables.get(table_id)?;
-        let row = table.get_row(row_id)?;
-        return Some(row.iter().cloned().collect());
-    }
-
-    pub fn create_row(&mut self, table_id: usize, key: Something) -> Option<u32> {
-        let table = self.tables.get_mut(table_id)?;
-        return Some(table.create_row(key));
-    }
-
-    pub fn with_cols_equal_to(
-        &self,
-        table_id: usize,
-        col: usize,
-        value: Something,
-    ) -> Option<Vec<u32>> {
-        let table = self.tables.get(table_id)?;
-        return Some(table.with_cols_equal_to(col, value));
+    pub fn get_property(&self, key: u32) -> Option<&Something> {
+        return self.properties.get(&key);
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Table {
-    items: HashMap<Something, u32>,
-    notifications: Vec<ListenerID>,
-    rows: RowsCollection,
+pub struct Storage {
+    pub collection: HashMap<u32, Object>,
+    last_id: u32,
 }
 
-impl Table {
+impl Storage {
     pub fn new() -> Self {
-        Table {
-            items: HashMap::new(),
-            notifications: Vec::new(),
-            rows: RowsCollection::new(),
+        Storage {
+            collection: HashMap::new(),
+            last_id: 0,
         }
     }
 
-    pub fn clear(&mut self) {
-        for row in self.rows.iter() {
-            row.1.notify(&mut self.notifications);
-        }
-        self.items = HashMap::new();
-        self.rows = RowsCollection::new();
-    }
-
-    pub fn remove_listener(&mut self, row_id: u32, listener_id: ListenerID) -> Option<()> {
-        self.rows.get_mut(&row_id)?.remove_listener(listener_id);
-        return Some(());
-    }
-
-    fn take_notifications(&mut self, worker_id: u8) -> Vec<ListenerID> {
-        let mut v = Vec::new();
-        self.notifications.retain(|l| {
-            if l.is_from_worker(worker_id) {
-                v.push(*l);
-                return false;
-            }
-            return true;
-        });
-        return v;
-    }
-
-    pub fn with_cols_equal_to(&self, col: usize, value: Something) -> Vec<u32> {
-        return self
-            .rows
-            .iter()
-            .filter_map(|(row_id, row)| {
-                let something = row.get(col);
-                if something == &value {
-                    return Some(row_id);
-                }
-                return None;
-            })
-            .collect::<Vec<u32>>();
-    }
-
-    pub fn add_listener(&mut self, listener_id: ListenerID, row_id: u32) -> Option<()> {
-        let row = self.rows.get_mut(&row_id)?;
-        row.add_listener(listener_id);
-        return Some(());
-    }
-
-    pub fn delete_row(&mut self, row_id: u32) {
-        if let Some(v) = self.rows.remove(&row_id) {
-            v.notify(&mut self.notifications);
-            self.items.remove(&v.key);
-        }
-    }
-
-    pub fn get_row(&self, row_id: u32) -> Option<&Row> {
-        return self.rows.get(&row_id);
-    }
-
-    pub fn get_row_by_key(&self, key: &Something) -> Option<&Row> {
-        let row_id = self.items.get(key)?;
-        return self.rows.get(row_id);
-    }
-
-    pub fn create_row(&mut self, key: Something) -> u32 {
-        let row = self.items.get(&key);
-        if let Some(row) = row {
-            return *row;
-        }
-
-        let row = Row::new(key.clone());
-        let id = self.rows.insert(row);
-        self.items.insert(key, id);
+    pub fn create_object(&mut self) -> u32 {
+        let id = self.last_id;
+        self.last_id += 1;
+        self.collection.insert(id, Object::new());
         return id;
     }
 
-    pub fn insert_at(&mut self, row_id: u32, value: Something, index: usize) {
-        let Some(row) = self.rows.get_mut(&row_id) else {
-            return;
-        };
-        row.insert_at(value, index);
-        row.notify(&mut self.notifications);
+    pub fn get_object(&self, id: u32) -> Option<&Object> {
+        return self.collection.get(&id);
     }
 
-    pub fn insert_at_by_key(&mut self, key: &Something, value: Something, index: usize) {
-        let row_id = self.items.get(key);
-        if let Some(row_id) = row_id {
-            self.insert_at(*row_id, value, index);
-        } else {
-            self.create_row(key.clone());
-            let row_id = self.items.get(key).unwrap();
-            self.insert_at(*row_id, value, index);
+    pub fn set_object_property(&mut self, object_id: u32, key: u32, value: Something) {
+        if let Some(object) = self.collection.get_mut(&object_id) {
+            object.set_property(key, value);
         }
     }
-}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RowsCollection {
-    rows: HashMap<u32, Row, FastIDHasher>,
-    next_id: usize,
-}
-
-impl RowsCollection {
-    pub fn new() -> Self {
-        return RowsCollection {
-            rows: HashMap::with_hasher(FastIDHasher { state: 0 }),
-            next_id: 0,
-        };
-    }
-
-    pub fn insert(&mut self, mut row: Row) -> u32 {
-        let id = self.next_id as u32;
-        row.id = id;
-        self.rows.insert(id, row);
-        self.next_id += 1;
-        return id;
-    }
-
-    pub fn get(&self, id: &u32) -> Option<&Row> {
-        return self.rows.get(id);
-    }
-
-    pub fn get_mut(&mut self, id: &u32) -> Option<&mut Row> {
-        return self.rows.get_mut(id);
-    }
-
-    pub fn remove(&mut self, id: &u32) -> Option<Row> {
-        return self.rows.remove(id);
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (u32, &Row)> {
-        return self.rows.iter().map(|(id, row)| (*id, row));
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct FastIDHasher {
-    state: u64,
-}
-
-impl BuildHasher for FastIDHasher {
-    type Hasher = Self;
-
-    fn build_hasher(&self) -> Self::Hasher {
-        return FastIDHasher { state: 0 };
-    }
-}
-
-impl Hasher for FastIDHasher {
-    #[inline(always)]
-    fn finish(&self) -> u64 {
-        self.state
-    }
-
-    #[inline(always)]
-    fn write_u32(&mut self, i: u32) {
-        // Fast multiplicative hash using golden ratio constant
-        // Provides excellent distribution with minimal performance cost
-        let hash = (i as u64).wrapping_mul(0x9e3779b97f4a7c15);
-        // Additional mixing for better avalanche effect
-        self.state = hash ^ (hash >> 32);
-    }
-
-    #[inline(always)]
-    fn write(&mut self, _bytes: &[u8]) {
-        panic!("FastIDHasher only supports u32");
+    pub fn get_object_property(&self, object_id: u32, key: u32) -> Option<&Something> {
+        if let Some(object) = self.collection.get(&object_id) {
+            return object.get_property(key);
+        }
+        return None;
     }
 }

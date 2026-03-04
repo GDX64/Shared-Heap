@@ -1,113 +1,10 @@
 import initModule, { type InitOutput } from "../pkg/any_store";
-import { Table } from "./Table";
-import type { Blob, ColMap, F64, I32, Null, Something, String } from "./types";
-
-const jsStack: any[] = [];
-
-function pushToStringStack(str: string) {
-  jsStack.push(str);
-}
-
-function pushBlobToStack(blob: Uint8Array) {
-  jsStack.push(blob);
-}
-
-function getWholeStack(): any[] {
-  return jsStack.splice(0, jsStack.length);
-}
-
-function popObjectFromStack(): any {
-  const val = jsStack.pop();
-  if (val && typeof val === "object") {
-    return val.value;
-  }
-  return val;
-}
-
-function js_push_null(): void {
-  jsStack.push(null);
-}
-
-function js_put_i32(value: number): void {
-  jsStack.push(value);
-}
-
-function js_put_f64(value: number): void {
-  jsStack.push(value);
-}
-
-function js_push_string_to_stack() {
-  jsStack.push("");
-}
-
-function js_log_stack_value(): void {
-  const val = jsStack.pop();
-  console.log("WASM LOG:", val);
-}
-
-function js_push_to_string(byte: number): void {
-  jsStack[jsStack.length - 1] += String.fromCharCode(byte);
-}
-
-function js_pop_stack(): void {
-  jsStack.pop();
-}
-
-function js_read_string_length(): number {
-  return jsStack.at(-1)?.length ?? 0;
-}
-
-function js_read_string(index: number): number {
-  return jsStack.at(-1)?.charCodeAt(index) ?? 0;
-}
-
-function js_read_blob_length(): number {
-  return jsStack.at(-1)?.length ?? 0;
-}
-
-function js_read_blob_byte(index: number): number {
-  return jsStack.at(-1)?.[index] ?? 0;
-}
-
-function js_performance_now() {
-  return performance.now();
-}
-
-function js_create_blob(size: number) {
-  jsStack.push({ value: new Uint8Array(size), index: 0 });
-}
-
-function js_push_to_blob(byte: number) {
-  const blob = jsStack.at(-1) as { value: Uint8Array; index: number };
-  blob.value[blob.index] = byte;
-  blob.index += 1;
-}
-
-function startWorkerID(workerID: number) {
-  (globalThis as any).unsafe_worker_id = () => workerID;
-}
-
-const ops = {
-  js_put_i32,
-  js_put_f64,
-  js_push_to_string,
-  js_read_string_length,
-  js_read_string,
-  js_pop_stack,
-  js_push_string_to_stack,
-  js_log_stack_value,
-  js_push_null,
-  js_performance_now,
-  js_create_blob,
-  js_push_to_blob,
-  js_read_blob_length,
-  js_read_blob_byte,
-  unsafe_worker_id: () => 0,
-};
-
-for (const op in ops) {
-  (globalThis as any)[op] = (ops as any)[op];
-}
+import {
+  popObjectFromStack,
+  pushToStringStack,
+  startWorkerID,
+} from "./importFunctions";
+import type { Blob, F64, I32, Null, Something, String } from "./types";
 
 type WorkerData = {
   memory: WebAssembly.Memory;
@@ -115,82 +12,12 @@ type WorkerData = {
 };
 
 export class AnyStore {
-  private ops: Ops;
-  private listeners: Map<number, () => void> = new Map();
   private workerID: number = 0;
 
   constructor(
-    out: InitOutput,
+    private mod: InitOutput,
     private memory: WebAssembly.Memory,
-  ) {
-    this.ops = new Ops(out);
-  }
-
-  private async lockAsync() {
-    while (true) {
-      const success = this.ops.exports.try_lock();
-      if (success) {
-        return;
-      } else {
-        const pointer = this.ops.exports.lock_pointer();
-        const array = new Int32Array(this.memory.buffer, pointer, 1);
-        await Atomics.waitAsync(array, 0, 0);
-      }
-    }
-  }
-
-  createRow(key: Something, tableID: number): number {
-    this.ops.putSomethingOnStack(key.value, key.tag);
-    return this.ops.exports.table_create_row(tableID);
-  }
-
-  withBatch<T>(fn: () => T): T {
-    try {
-      this.ops.exports.start_batch();
-      return fn();
-    } finally {
-      this.ops.exports.end_batch();
-    }
-  }
-
-  /**
-   * This function will probably be less performant than withLock
-   * but it wont block the current thread in the case the lock
-   * cant be acquired
-   */
-  async withLockAsync<T>(fn: () => Promise<T>): Promise<T> {
-    try {
-      await this.lockAsync();
-      const result = await fn();
-      return result;
-    } finally {
-      this.unlock();
-    }
-  }
-
-  /**
-   * This function will block the thread in
-   * web workers in the case some worker has the lock
-   * it wont burn CPU on workers though because of Atomic.wait
-   * On the main thread it will spin loop and burn CPU until it gets the lock
-   */
-  withLock<T>(fn: () => T): T {
-    try {
-      this.lock();
-      const result = fn();
-      return result;
-    } finally {
-      this.unlock();
-    }
-  }
-
-  private lock() {
-    this.ops.lock();
-  }
-
-  private unlock() {
-    this.ops.unlock();
-  }
+  ) {}
 
   static async create() {
     const memory = new WebAssembly.Memory({
@@ -208,94 +35,30 @@ export class AnyStore {
     return new AnyStore(mod, workerData.memory);
   }
 
-  clearTable(tableID: number) {
-    this.ops.exports.table_clear(tableID);
+  createObject() {
+    const id = this.mod.create_object();
+    return createProxyForObject(id, this);
   }
 
-  withColsEqual(
-    tableID: number,
-    col: number,
-    value: unknown,
-    tag: Something["tag"],
-  ): number[] {
-    this.ops.putSomethingOnStack(value, tag);
-    this.ops.exports.table_with_col_equals(tableID, col);
-    return getWholeStack();
+  getObjProperty(objID: number, prop: number): Something["value"] {
+    this.mod.get_object_property(objID, prop);
+    return popObjectFromStack();
   }
 
-  getTable<T extends ColMap>(name: string, colMap: T): Table<T> | null {
-    const id = this.ops.getTableIDFromName(name);
-    if (!id) {
-      return null;
+  setObjProperty(objID: number, prop: number, value: Something): void {
+    this.addToStack(value);
+    this.mod.set_object_property(objID, prop);
+  }
+
+  private addToStack(value: Something): void {
+    if (value.tag === "i32") {
+      this.mod.something_push_i32_to_stack(value.value);
+    } else if (value.tag === "f64") {
+      this.mod.something_push_f64_to_stack(value.value);
+    } else if (value.tag === "string") {
+      pushToStringStack(value.value);
+      this.mod.something_push_string();
     }
-    return new Table<T>(colMap, id, this);
-  }
-
-  memSize() {
-    return 0;
-  }
-
-  createTable<T extends ColMap>(name: string, colMap: T): Table<T> {
-    const id = this.ops.createTable(name);
-    return new Table<T>(colMap, id, this);
-  }
-
-  getRowID(tableID: number, key: Something): number | null {
-    this.ops.putSomethingOnStack(key.value, key.tag);
-    const id = this.ops.exports.table_get_row_id(tableID);
-    return id === -1 ? null : id;
-  }
-
-  insertOnTable(
-    tableID: number,
-    col: number,
-    row_id: number,
-    value: unknown,
-    tag: Something["tag"],
-  ) {
-    this.ops.putSomethingOnStack(value, tag);
-    this.ops.tableInsert(tableID, col, row_id);
-  }
-
-  addListenerToRow(tableID: number, rowID: number, fn: () => void) {
-    const result = this.ops.addListenerToRow(tableID, rowID);
-    this.listeners.set(result, fn);
-    return result;
-  }
-
-  notifyAll() {
-    this.withLock(() => {
-      const arr = this.ops.takeNotifications();
-      arr.forEach((id) => {
-        const listener = this.listeners.get(id);
-        listener?.();
-      });
-    });
-  }
-
-  getFromTable(
-    tableID: number,
-    rowID: number,
-    col: number,
-    _tag?: Something["tag"],
-  ): Something["value"] | null {
-    this.ops.tableGetSomething(tableID, col, rowID);
-    const value = popObjectFromStack();
-    return value ?? null;
-  }
-
-  deleteRowFromTable(tableID: number, rowID: number): void {
-    this.ops.deleteRowFromTable(tableID, rowID);
-  }
-
-  removeListenerFromRow(tableID: number, rowID: number, listenerID: number) {
-    this.listeners.delete(listenerID);
-    this.ops.removeListenerFromRow(tableID, rowID, listenerID);
-  }
-
-  getRowFromTable(tableID: number, rowID: number): Something["value"][] {
-    this.ops.getRowFromTable(tableID, rowID);
-    return getWholeStack();
   }
 
   createWorker(): WorkerData {
@@ -326,13 +89,13 @@ export class AnyStore {
     return { tag: "null", value: null };
   }
 
-  static stack() {
-    return jsStack;
-  }
-
   static somethingFromValue(value: any): Something | null {
     if (typeof value === "number") {
-      return AnyStore.f64(value);
+      if (Number.isInteger(value)) {
+        return AnyStore.i32(value);
+      } else {
+        return AnyStore.f64(value);
+      }
     } else if (typeof value === "string") {
       return AnyStore.string(value);
     } else if (value === null) {
@@ -344,98 +107,34 @@ export class AnyStore {
   }
 }
 
-class Ops {
-  constructor(private out: InitOutput) {
-    this.exports.start();
-  }
+type Target = {
+  objID: number;
+  store: AnyStore;
+};
 
-  get exports() {
-    return this.out;
-  }
+const proxySchema = {
+  get(target: Target, prop: any) {
+    return target.store.getObjProperty(target.objID, hash(prop));
+  },
+  set(target: Target, prop: any, value: any) {
+    target.store.setObjProperty(
+      target.objID,
+      hash(prop),
+      AnyStore.somethingFromValue(value) ?? AnyStore.null(),
+    );
+    return true;
+  },
+};
 
-  createTable(name: string) {
-    this.putSomethingOnStack(name, "string");
-    return this.exports.table_create();
-  }
+function createProxyForObject(objID: number, store: AnyStore): any {
+  return new Proxy({ objID, store }, proxySchema);
+}
 
-  getTableIDFromName(name: string): number | null {
-    this.putSomethingOnStack(name, "string");
-    const id = this.exports.table_get_id_from_name();
-    return id === -1 ? null : id;
+function hash(str: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash *= 16777619;
   }
-
-  putSomethingOnStack(value: unknown, tag: Something["tag"]) {
-    if (value == null) {
-      this.pushNullToStack();
-    } else if (tag === "i32") {
-      this.somethingPushi32ToStack(value as number);
-    } else if (tag === "string") {
-      this.pushStringToStack(value as string);
-    } else if (tag === "f64") {
-      this.somethingPushf64ToStack(value as number);
-    } else if (tag === "blob") {
-      this.somethingPushBlobToStack(value as Uint8Array);
-    } else if (tag === "null") {
-      this.pushNullToStack();
-    }
-  }
-
-  removeListenerFromRow(tableID: number, rowID: number, listenerID: number) {
-    this.exports.table_remove_listener(tableID, listenerID, rowID);
-  }
-
-  deleteRowFromTable(tableID: number, rowID: number): void {
-    this.exports.delete_row_from_table(tableID, rowID);
-  }
-
-  getRowFromTable(tableID: number, rowID: number): void {
-    this.exports.table_get_row(tableID, rowID);
-  }
-
-  pushNullToStack(): void {
-    this.exports.something_push_null_to_stack();
-  }
-
-  somethingPushBlobToStack(value: Uint8Array): void {
-    pushBlobToStack(value);
-    this.exports.something_push_blob();
-  }
-
-  lock() {
-    this.exports.lock();
-  }
-
-  unlock() {
-    this.exports.unlock();
-  }
-
-  somethingPushf64ToStack(value: number): void {
-    this.exports.something_push_f64_to_stack(value);
-  }
-
-  takeNotifications(): number[] {
-    this.exports.db_take_notifications();
-    return getWholeStack();
-  }
-
-  addListenerToRow(tableID: number, rowID: number): number {
-    return this.exports.table_add_listener_to_row(tableID, rowID);
-  }
-
-  somethingPushi32ToStack(value: number): void {
-    this.exports.something_push_i32_to_stack(value);
-  }
-
-  pushStringToStack(str: string): void {
-    pushToStringStack(str);
-    this.exports.something_push_string();
-  }
-
-  tableInsert(tableID: number, col: number, rowID: number): void {
-    this.exports.table_insert(tableID, col, rowID);
-  }
-
-  tableGetSomething(tableID: number, col: number, rowID: number): void {
-    this.exports.table_get_something(tableID, col, rowID);
-  }
+  return hash >>> 0;
 }

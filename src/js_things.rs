@@ -2,14 +2,11 @@ use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
     extern_functions::*,
-    my_rwlock::MyRwLock,
-    storage::{Database, ListenerID, Operation},
+    my_rwlock::{MyRwLock, ReadGuard, WriteGuard},
+    storage::Storage,
     value::Something,
 };
-use std::{
-    cell::{RefCell, UnsafeCell},
-    sync::LazyLock,
-};
+use std::{cell::RefCell, sync::LazyLock};
 
 struct SomethingStack {
     stack: Vec<Something>,
@@ -31,12 +28,6 @@ impl SomethingStack {
 
 thread_local! {
     static SOMETHING_STACK: RefCell<SomethingStack> = RefCell::new(SomethingStack::new());
-    static IS_BATCHING: UnsafeCell<bool> = UnsafeCell::new(false);
-    static BATCHED_OPERATIONS: RefCell<Vec<Operation>> = RefCell::new(Vec::new());
-}
-
-fn is_batching() -> bool {
-    return IS_BATCHING.with(|v| unsafe { *v.get() });
 }
 
 fn pop_something() -> Option<Something> {
@@ -52,13 +43,13 @@ fn pop_from_something_stack() -> Option<Something> {
 }
 
 struct GlobalState {
-    db: MyRwLock<Database>,
+    db: MyRwLock<Storage>,
 }
 
 impl GlobalState {
     fn new() -> Self {
         GlobalState {
-            db: MyRwLock::new(Database::new()),
+            db: MyRwLock::new(Storage::new()),
         }
     }
 
@@ -78,14 +69,12 @@ impl GlobalState {
         return self.db.lock.pointer();
     }
 
-    fn with_db_mut<R, F: FnOnce(&mut Database) -> R>(&self, f: F) -> R {
-        let mut state = self.db.write();
-        return f(&mut state);
+    fn write(&self) -> WriteGuard<'_, Storage> {
+        return self.db.write();
     }
 
-    fn with_db<R, F: FnOnce(&Database) -> R>(&self, f: F) -> R {
-        let state = self.db.read();
-        return f(&state);
+    fn read(&self) -> ReadGuard<'_, Storage> {
+        return self.db.read();
     }
 }
 
@@ -112,6 +101,28 @@ pub fn lock_pointer() -> *const i32 {
 }
 
 #[wasm_bindgen]
+pub fn get_object_property(object_id: u32, key: u32) {
+    let storage = GLOBALS.read();
+    if let Some(obj) = storage.get_object_property(object_id, key) {
+        push_to_js_stack(&obj);
+    }
+}
+
+#[wasm_bindgen]
+pub fn create_object() -> u32 {
+    let mut storage = GLOBALS.write();
+    return storage.create_object();
+}
+
+#[wasm_bindgen]
+pub fn set_object_property(object_id: u32, key: u32) {
+    if let Some(value) = pop_from_something_stack() {
+        let mut storage = GLOBALS.write();
+        storage.set_object_property(object_id, key, value);
+    }
+}
+
+#[wasm_bindgen]
 pub fn start() {
     if worker_id() == 0 {
         std::panic::set_hook(Box::new(|info| {
@@ -119,90 +130,6 @@ pub fn start() {
             let full_message = format!("Panic occurred: {}", msg);
             log_string(&full_message);
         }));
-    }
-}
-
-#[wasm_bindgen]
-pub fn table_create() -> usize {
-    return GLOBALS.with_db_mut(|db| {
-        let name = pop_from_something_stack().expect("there should be a name for the table");
-        return db.create_table(name);
-    });
-}
-
-#[wasm_bindgen]
-pub fn table_get_row_id(table_id: usize) -> i32 {
-    return GLOBALS
-        .with_db(|db| {
-            let key = pop_from_something_stack()?;
-            let row_id = db.get_row_by_key(table_id, &key)?;
-            return Some(row_id as i32);
-        })
-        .unwrap_or(-1);
-}
-#[wasm_bindgen]
-pub fn table_clear(table_id: usize) {
-    GLOBALS.with_db_mut(|db| {
-        db.clear_table(table_id);
-    });
-}
-
-#[wasm_bindgen]
-pub fn table_get_id_from_name() -> i32 {
-    let name = pop_from_something_stack().expect("there should be a name for the table");
-    return GLOBALS
-        .with_db(|db| {
-            return db.get_table_id(name);
-        })
-        .map(|id| id as i32)
-        .unwrap_or(-1);
-}
-
-#[wasm_bindgen]
-pub fn table_get_something(table: usize, col: usize, row_id: u32) {
-    _table_get_something(table, col, row_id);
-}
-
-fn _table_get_something(table: usize, col: usize, row_id: u32) -> Option<()> {
-    return GLOBALS.with_db(|db| {
-        let value = db.get_row_value(table, row_id, col)?;
-        push_to_js_stack(&value);
-        return Some(());
-    });
-}
-
-#[wasm_bindgen]
-pub fn table_get_row(table: usize, row_id: u32) {
-    _table_get_row(table, row_id);
-}
-
-fn _table_get_row(table: usize, row_id: u32) -> Option<()> {
-    return GLOBALS.with_db(|db| {
-        let values = db.get_row_values(table, row_id)?;
-        for item in &values {
-            push_to_js_stack(item);
-        }
-        return Some(());
-    });
-}
-
-#[wasm_bindgen]
-pub fn table_insert(table: usize, col: usize, row_id: u32) {
-    let Some(value) = pop_from_something_stack() else {
-        return;
-    };
-    let op = Operation::Insert {
-        table_id: table,
-        row_id: row_id,
-        value,
-        index: col,
-    };
-    if is_batching() {
-        BATCHED_OPERATIONS.with_borrow_mut(|ops| ops.push(op));
-    } else {
-        GLOBALS.with_db_mut(|db| {
-            db.operation(op);
-        });
     }
 }
 
@@ -226,29 +153,6 @@ pub fn something_push_string() {
 }
 
 #[wasm_bindgen]
-pub fn table_create_row(table: usize) -> i32 {
-    let row_id = GLOBALS
-        .with_db_mut(|db| {
-            let key = pop_from_something_stack()?;
-            return db.create_row(table, key).map(|id| id as i32);
-        })
-        .unwrap_or(-1);
-    return row_id;
-}
-
-#[wasm_bindgen]
-pub fn table_with_col_equals(table: usize, col: usize) {
-    GLOBALS.with_db(|db| {
-        let value = pop_from_something_stack()?;
-        let rows = db.with_cols_equal_to(table, col, value)?;
-        for row_id in rows {
-            push_to_js_stack(&Something::Int(row_id as i32));
-        }
-        return Some(());
-    });
-}
-
-#[wasm_bindgen]
 pub fn something_push_f64_to_stack(value: f64) {
     let something = Something::Float(value);
     push_something(something);
@@ -258,68 +162,6 @@ pub fn something_push_f64_to_stack(value: f64) {
 pub fn something_push_null_to_stack() {
     let something = Something::Null;
     push_something(something);
-}
-
-#[wasm_bindgen]
-pub fn delete_row_from_table(table_id: usize, row_id: u32) {
-    let operation = Operation::RowDelete { table_id, row_id };
-    if is_batching() {
-        BATCHED_OPERATIONS.with_borrow_mut(|ops| ops.push(operation));
-    } else {
-        GLOBALS.with_db_mut(|db| {
-            db.operation(operation);
-        });
-    }
-}
-
-#[wasm_bindgen]
-pub fn start_batch() {
-    IS_BATCHING.with(|v| unsafe { *v.get() = true });
-}
-
-#[wasm_bindgen]
-pub fn end_batch() {
-    let operations = BATCHED_OPERATIONS.with_borrow_mut(|ops| {
-        let ops_clone = ops.clone();
-        ops.clear();
-        return ops_clone;
-    });
-    GLOBALS.with_db_mut(|db| {
-        for op in operations {
-            db.operation(op);
-        }
-    });
-
-    IS_BATCHING.with(|v| unsafe { *v.get() = false });
-}
-
-#[wasm_bindgen]
-pub fn table_remove_listener(table_id: usize, listener_id: u32, row_id: u32) {
-    GLOBALS.with_db_mut(|db| {
-        db.remove_listener(table_id, row_id, listener_id);
-    });
-}
-
-#[wasm_bindgen]
-pub fn db_take_notifications() {
-    let notifications = GLOBALS.with_db_mut(|db| {
-        return db.take_notifications(worker_id() as u8);
-    });
-
-    for notification in notifications {
-        safe_put_i32(notification);
-    }
-}
-
-#[wasm_bindgen]
-pub fn table_add_listener_to_row(table_id: usize, row_id: u32) -> i32 {
-    fn inner(table_id: usize, row_id: u32) -> Option<ListenerID> {
-        let id = GLOBALS.with_db_mut(|db| {
-            return db.add_listener_to(table_id, row_id);
-        });
-        return id;
-    }
-    return inner(table_id, row_id).map(|id| id.to_i32()).unwrap_or(-1);
 }
 
 #[wasm_bindgen]
@@ -351,6 +193,9 @@ fn push_to_js_stack(value: &Something) {
             for byte in b {
                 safe_push_to_blob(*byte);
             }
+        }
+        Something::Ref(r) => {
+            safe_put_ref(*r);
         }
         Something::Null => {
             safe_push_null();
