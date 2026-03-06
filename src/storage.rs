@@ -20,6 +20,10 @@ impl Object {
     pub fn get_property(&self, key: u32) -> Option<&Something> {
         return self.properties.get(&key);
     }
+
+    pub fn delete_property(&mut self, key: u32) {
+        self.properties.remove(&key);
+    }
 }
 
 pub struct Storage {
@@ -62,5 +66,11 @@ impl Storage {
             return object.get_property(key);
         }
         return None;
+    }
+
+    pub fn delete_object_property(&mut self, object_id: u32, key: u32) {
+        if let Some(object) = self.collection.get_mut(&object_id) {
+            object.delete_property(key);
+        }
     }
 }

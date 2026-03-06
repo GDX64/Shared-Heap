@@ -8,6 +8,8 @@ use crate::{
 };
 use std::{cell::RefCell, sync::LazyLock};
 
+const ARRAY_LENGTH: u32 = u32::MAX;
+
 struct SomethingStack {
     stack: Vec<Something>,
 }
@@ -125,14 +127,14 @@ pub fn create_array() -> u32 {
     let mut storage = GLOBALS.write();
     let id = storage.create_object();
     // Initialize length to 0
-    storage.set_object_property(id, 0xFFFFFFFF, Something::Int(0));
+    storage.set_object_property(id, ARRAY_LENGTH, Something::Int(0));
     return id;
 }
 
 #[wasm_bindgen]
 pub fn array_get_length(array_id: u32) -> i32 {
     let storage = GLOBALS.read();
-    if let Some(length) = storage.get_object_property(array_id, 0xFFFFFFFF) {
+    if let Some(length) = storage.get_object_property(array_id, ARRAY_LENGTH) {
         match length {
             Something::Int(len) => return *len,
             _ => return 0,
@@ -144,7 +146,13 @@ pub fn array_get_length(array_id: u32) -> i32 {
 #[wasm_bindgen]
 pub fn array_set_length(array_id: u32, length: i32) {
     let mut storage = GLOBALS.write();
-    storage.set_object_property(array_id, 0xFFFFFFFF, Something::Int(length));
+    storage.set_object_property(array_id, ARRAY_LENGTH, Something::Int(length));
+}
+
+#[wasm_bindgen]
+pub fn delete_object_property(object_id: u32, key: u32) {
+    let mut storage = GLOBALS.write();
+    storage.delete_object_property(object_id, key);
 }
 
 #[wasm_bindgen]

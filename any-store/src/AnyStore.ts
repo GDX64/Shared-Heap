@@ -102,11 +102,15 @@ export class AnyStore {
   }
 
   setArrayElement(objID: number, index: number, value: unknown): void {
-    this.setObjProperty(objID, hash(index.toString()), value);
+    this.setObjProperty(objID, index, value);
     const currentLength = this.arrayGetLength(objID);
     if (index >= currentLength) {
       this.arraySetLength(objID, index + 1);
     }
+  }
+
+  arrayDeleteElement(objID: number, index: number): void {
+    this.mod.delete_object_property(objID, index);
   }
 
   private addToStack(value: Something): void {
@@ -225,22 +229,35 @@ const proxyArraySchema: ProxyHandler<Target> = {
     if (prop === "length") {
       return target.store.arrayGetLength(target.objID);
     }
+    if (prop === "push") {
+      return function (...items: any[]) {
+        const length = target.store.arrayGetLength(target.objID);
+        for (let i = 0; i < items.length; i++) {
+          target.store.setArrayElement(target.objID, length + i, items[i]);
+        }
+        return target.store.arrayGetLength(target.objID);
+      };
+    }
+    if (prop === "pop") {
+      return function () {
+        const length = target.store.arrayGetLength(target.objID);
+        if (length === 0) {
+          return undefined;
+        }
+        const lastIndex = length - 1;
+        const value = target.store.getObjProperty(target.objID, lastIndex);
+        target.store.arrayDeleteElement(target.objID, lastIndex);
+        target.store.arraySetLength(target.objID, lastIndex);
+        return value;
+      };
+    }
     // Check if it's a numeric index
     const index = Number(prop);
-    if (!isNaN(index) && index >= 0 && Number.isInteger(index)) {
-      return target.store.getObjProperty(target.objID, hash(prop));
-    }
-    // For other properties, return the property value
-    return target.store.getObjProperty(target.objID, hash(prop));
+    return target.store.getObjProperty(target.objID, index);
   },
   set(target: Target, prop: string, value: any) {
-    // Check if it's a numeric index
     const index = Number(prop);
-    if (!isNaN(index) && index >= 0 && Number.isInteger(index)) {
-      target.store.setArrayElement(target.objID, index, value);
-    } else {
-      target.store.setObjProperty(target.objID, hash(prop), value);
-    }
+    target.store.setArrayElement(target.objID, index, value);
     return true;
   },
   has(_target: Target, p) {

@@ -38,11 +38,17 @@ describe("hello", () => {
 
   test("arrays", async () => {
     const db = await AnyStore.create();
-    const obj = db.createObject({ arr: [1, 2, 3] });
+    const obj = db.createObject({ arr: [1] });
 
     expect(obj.arr[0]).toBe(1);
+    expect(obj.arr[1]).toBeNullable();
+    expect(obj.arr.length).toBe(1);
+
+    obj.arr.push(2);
     expect(obj.arr[1]).toBe(2);
-    expect(obj.arr[2]).toBe(3);
-    expect(obj.arr.length).toBe(3);
+    expect(obj.arr.length).toBe(2);
+    obj.arr.pop();
+    expect(obj.arr[1]).toBeNullable();
+    expect(obj.arr.length).toBe(1);
   });
 });
