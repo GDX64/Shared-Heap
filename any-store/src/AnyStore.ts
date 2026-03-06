@@ -14,12 +14,18 @@ type WorkerData = {
 
 export class AnyStore {
   private workerID: number = 0;
-  private proxyMap: Map<number, any> = new Map();
+  private proxyMap: Map<number, WeakRef<any>> = new Map();
+  private finalization: FinalizationRegistry<number>;
 
   constructor(
     private mod: InitOutput,
     private memory: WebAssembly.Memory,
-  ) {}
+  ) {
+    this.finalization = new FinalizationRegistry((id: number) => {
+      this.proxyMap.delete(id);
+      this.mod.drop_object(id);
+    });
+  }
 
   static async create() {
     const memory = new WebAssembly.Memory({
@@ -40,7 +46,8 @@ export class AnyStore {
   createObject<T>(initial: T): T {
     const id = this.mod.create_object();
     const obj = createProxyForObject(id, this);
-    this.proxyMap.set(id, obj);
+    this.finalization.register(obj, id);
+    this.proxyMap.set(id, new WeakRef(obj));
     for (const key in initial) {
       const value = (initial as any)[key];
       obj[key] = value;
@@ -56,7 +63,7 @@ export class AnyStore {
     }
     if (typeof result === "object") {
       if (result.type === "ref") {
-        return this.proxyMap.get(result.value) ?? null;
+        return this.proxyMap.get(result.value)?.deref() ?? null;
       }
       return result.value;
     }

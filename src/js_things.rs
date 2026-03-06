@@ -109,6 +109,12 @@ pub fn get_object_property(object_id: u32, key: u32) {
 }
 
 #[wasm_bindgen]
+pub fn drop_object(id: u32) -> u32 {
+    let mut storage = GLOBALS.write();
+    return storage.drop_object(id);
+}
+
+#[wasm_bindgen]
 pub fn create_object() -> u32 {
     let mut storage = GLOBALS.write();
     return storage.create_object();

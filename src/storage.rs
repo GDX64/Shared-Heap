@@ -35,6 +35,11 @@ impl Storage {
         }
     }
 
+    pub fn drop_object(&mut self, id: u32) -> u32 {
+        self.collection.remove(&id);
+        return id;
+    }
+
     pub fn create_object(&mut self) -> u32 {
         let id = self.last_id;
         self.last_id += 1;
