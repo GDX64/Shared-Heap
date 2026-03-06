@@ -43,6 +43,15 @@ export class AnyStore {
     return new AnyStore(mod, workerData.memory);
   }
 
+  withLock<T>(fn: () => T): T {
+    try {
+      this.mod.lock();
+      return fn();
+    } finally {
+      this.mod.unlock();
+    }
+  }
+
   createObject<T>(initial: T): T {
     let obj;
     let id;
@@ -62,7 +71,22 @@ export class AnyStore {
     return obj;
   }
 
-  getObjProperty(objID: number, prop: number): Something["value"] {
+  getObject<T>(id: number): T | null {
+    const proxy = this.proxyMap.get(id)?.deref();
+    if (proxy) {
+      return proxy;
+    }
+    const exists = this.mod.increment_object_references(id);
+    if (!exists) {
+      return null;
+    }
+    const obj = createProxyForObject(id, this);
+    this.finalization.register(obj, id);
+    this.proxyMap.set(id, new WeakRef(obj));
+    return obj;
+  }
+
+  __getObjProperty(objID: number, prop: number): Something["value"] {
     this.mod.get_object_property(objID, prop);
     const result = popObjectFromStack();
     if (result == null) {
@@ -77,7 +101,7 @@ export class AnyStore {
     return result;
   }
 
-  setObjProperty(objID: number, prop: number, value: unknown): void {
+  __setObjProperty(objID: number, prop: number, value: unknown): void {
     if (AnyStore.isProxy(value)) {
       const id = AnyStore.getIDOfProxy(value);
       this.addToStack(AnyStore.ref(id!));
@@ -93,23 +117,23 @@ export class AnyStore {
     }
   }
 
-  arrayGetLength(objID: number): number {
+  __arrayGetLength(objID: number): number {
     return this.mod.array_get_length(objID);
   }
 
-  arraySetLength(objID: number, length: number): void {
+  __arraySetLength(objID: number, length: number): void {
     this.mod.array_set_length(objID, length);
   }
 
-  setArrayElement(objID: number, index: number, value: unknown): void {
-    this.setObjProperty(objID, index, value);
-    const currentLength = this.arrayGetLength(objID);
+  __setArrayElement(objID: number, index: number, value: unknown): void {
+    this.__setObjProperty(objID, index, value);
+    const currentLength = this.__arrayGetLength(objID);
     if (index >= currentLength) {
-      this.arraySetLength(objID, index + 1);
+      this.__arraySetLength(objID, index + 1);
     }
   }
 
-  arrayDeleteElement(objID: number, index: number): void {
+  __arrayDeleteElement(objID: number, index: number): void {
     this.mod.delete_object_property(objID, index);
   }
 
@@ -199,10 +223,10 @@ const proxySchema: ProxyHandler<Target> = {
     if (prop === "__id") {
       return target.objID;
     }
-    return target.store.getObjProperty(target.objID, hash(prop));
+    return target.store.__getObjProperty(target.objID, hash(prop));
   },
   set(target: Target, prop: string, value: any) {
-    target.store.setObjProperty(target.objID, hash(prop), value);
+    target.store.__setObjProperty(target.objID, hash(prop), value);
     return true;
   },
   has(_target: Target, p) {
@@ -227,37 +251,37 @@ const proxyArraySchema: ProxyHandler<Target> = {
       return target.objID;
     }
     if (prop === "length") {
-      return target.store.arrayGetLength(target.objID);
+      return target.store.__arrayGetLength(target.objID);
     }
     if (prop === "push") {
       return function (...items: any[]) {
-        const length = target.store.arrayGetLength(target.objID);
+        const length = target.store.__arrayGetLength(target.objID);
         for (let i = 0; i < items.length; i++) {
-          target.store.setArrayElement(target.objID, length + i, items[i]);
+          target.store.__setArrayElement(target.objID, length + i, items[i]);
         }
-        return target.store.arrayGetLength(target.objID);
+        return target.store.__arrayGetLength(target.objID);
       };
     }
     if (prop === "pop") {
       return function () {
-        const length = target.store.arrayGetLength(target.objID);
+        const length = target.store.__arrayGetLength(target.objID);
         if (length === 0) {
           return undefined;
         }
         const lastIndex = length - 1;
-        const value = target.store.getObjProperty(target.objID, lastIndex);
-        target.store.arrayDeleteElement(target.objID, lastIndex);
-        target.store.arraySetLength(target.objID, lastIndex);
+        const value = target.store.__getObjProperty(target.objID, lastIndex);
+        target.store.__arrayDeleteElement(target.objID, lastIndex);
+        target.store.__arraySetLength(target.objID, lastIndex);
         return value;
       };
     }
     // Check if it's a numeric index
     const index = Number(prop);
-    return target.store.getObjProperty(target.objID, index);
+    return target.store.__getObjProperty(target.objID, index);
   },
   set(target: Target, prop: string, value: any) {
     const index = Number(prop);
-    target.store.setArrayElement(target.objID, index, value);
+    target.store.__setArrayElement(target.objID, index, value);
     return true;
   },
   has(_target: Target, p) {

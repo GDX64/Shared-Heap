@@ -65,6 +65,12 @@ impl Storage {
         return Some(());
     }
 
+    pub fn increment_object_references(&mut self, id: u32) -> Option<bool> {
+        let obj = self.collection.get_mut(&id)?;
+        obj.increment_references();
+        return Some(true);
+    }
+
     pub fn create_object(&mut self) -> u32 {
         let id = self.last_id;
         self.last_id += 1;

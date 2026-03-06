@@ -111,6 +111,14 @@ pub fn get_object_property(object_id: u32, key: u32) {
 }
 
 #[wasm_bindgen]
+pub fn increment_object_references(object_id: u32) -> bool {
+    let mut storage = GLOBALS.write();
+    return storage
+        .increment_object_references(object_id)
+        .unwrap_or(false);
+}
+
+#[wasm_bindgen]
 pub fn drop_object(id: u32) {
     let mut storage = GLOBALS.write();
     storage.drop_object(id);
