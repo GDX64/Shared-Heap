@@ -102,6 +102,12 @@ export class AnyStore {
   }
 
   __setObjProperty(objID: number, prop: number, value: unknown): void {
+    const something = AnyStore.somethingFromValue(value);
+    if (something != null) {
+      this.addToStack(something);
+      this.mod.set_object_property(objID, prop);
+      return;
+    }
     if (AnyStore.isProxy(value)) {
       const id = AnyStore.getIDOfProxy(value);
       this.addToStack(AnyStore.ref(id!));
@@ -110,9 +116,6 @@ export class AnyStore {
       const proxy = this.createObject(value);
       const id = AnyStore.getIDOfProxy(proxy);
       this.addToStack(AnyStore.ref(id!));
-      this.mod.set_object_property(objID, prop);
-    } else {
-      this.addToStack(AnyStore.somethingFromValue(value));
       this.mod.set_object_property(objID, prop);
     }
   }
@@ -195,7 +198,7 @@ export class AnyStore {
     return proxy.__id ?? null;
   }
 
-  static somethingFromValue(value: unknown): Something {
+  static somethingFromValue(value: unknown): Something | null {
     if (typeof value === "number") {
       if (Number.isInteger(value)) {
         return AnyStore.i32(value);
@@ -209,7 +212,7 @@ export class AnyStore {
     } else if (value instanceof Uint8Array) {
       return AnyStore.blob(value);
     }
-    return AnyStore.null();
+    return null;
   }
 }
 

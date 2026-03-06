@@ -11,11 +11,13 @@ describe("hello", () => {
       foo: 10,
       bar: 10.1,
       baz: "hello",
+      qux: new Uint8Array([1, 2, 3]),
     });
 
     expect(obj.foo).toBe(10);
     expect(obj.bar).toBe(10.1);
     expect(obj.baz).toBe("hello");
+    expect(obj.qux).toEqual(new Uint8Array([1, 2, 3]));
   });
   test("recursive", async () => {
     const db = await AnyStore.create();
