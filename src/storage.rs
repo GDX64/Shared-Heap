@@ -61,6 +61,7 @@ impl Storage {
         if !obj.has_references() {
             self.collection.remove(&id);
         };
+
         return Some(());
     }
 
