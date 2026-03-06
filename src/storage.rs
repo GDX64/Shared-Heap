@@ -4,13 +4,29 @@ use crate::value::Something;
 
 pub struct Object {
     properties: HashMap<u32, Something>,
+    references: u32,
 }
 
 impl Object {
     pub fn new() -> Self {
         Object {
             properties: HashMap::new(),
+            references: 1,
         }
+    }
+
+    pub fn increment_references(&mut self) {
+        self.references += 1;
+    }
+
+    pub fn decrement_references(&mut self) {
+        if self.references > 0 {
+            self.references -= 1;
+        }
+    }
+
+    pub fn has_references(&self) -> bool {
+        return self.references > 0;
     }
 
     pub fn set_property(&mut self, key: u32, value: Something) {
@@ -21,8 +37,8 @@ impl Object {
         return self.properties.get(&key);
     }
 
-    pub fn delete_property(&mut self, key: u32) {
-        self.properties.remove(&key);
+    pub fn delete_property(&mut self, key: u32) -> Option<Something> {
+        self.properties.remove(&key)
     }
 }
 
@@ -39,9 +55,13 @@ impl Storage {
         }
     }
 
-    pub fn drop_object(&mut self, id: u32) -> u32 {
-        self.collection.remove(&id);
-        return id;
+    pub fn drop_object(&mut self, id: u32) -> Option<()> {
+        let obj = self.collection.get_mut(&id)?;
+        obj.decrement_references();
+        if !obj.has_references() {
+            self.collection.remove(&id);
+        };
+        return Some(());
     }
 
     pub fn create_object(&mut self) -> u32 {
@@ -56,6 +76,11 @@ impl Storage {
     }
 
     pub fn set_object_property(&mut self, object_id: u32, key: u32, value: Something) {
+        if let Something::Ref(to) = value {
+            if let Some(obj) = self.collection.get_mut(&to) {
+                obj.increment_references();
+            }
+        }
         if let Some(object) = self.collection.get_mut(&object_id) {
             object.set_property(key, value);
         }
@@ -68,9 +93,13 @@ impl Storage {
         return None;
     }
 
-    pub fn delete_object_property(&mut self, object_id: u32, key: u32) {
-        if let Some(object) = self.collection.get_mut(&object_id) {
-            object.delete_property(key);
-        }
+    pub fn delete_object_property(&mut self, object_id: u32, key: u32) -> Option<Something> {
+        let object = self.collection.get_mut(&object_id)?;
+        let prop = object.delete_property(key)?;
+        if let Something::Ref(to) = prop {
+            let obj = self.collection.get_mut(&to)?;
+            obj.decrement_references();
+        };
+        return Some(prop);
     }
 }

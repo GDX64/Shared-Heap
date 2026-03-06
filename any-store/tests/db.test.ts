@@ -51,4 +51,19 @@ describe("hello", () => {
     expect(obj.arr[1]).toBeNullable();
     expect(obj.arr.length).toBe(1);
   });
+
+  test("array object", async () => {
+    const db = await AnyStore.create();
+    const obj = db.createObject({ arr: [{ name: "hello", age: 30 }] });
+
+    expect(obj.arr[0].name).toBe("hello");
+    expect(obj.arr[0].age).toBe(30);
+
+    obj.arr.push({ name: "world", age: 25 });
+    expect(obj.arr[1].name).toBe("world");
+    expect(obj.arr[1].age).toBe(25);
+
+    obj.arr.pop();
+    expect(obj.arr[1]).toBeNullable();
+  });
 });
