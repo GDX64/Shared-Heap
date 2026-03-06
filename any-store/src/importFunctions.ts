@@ -1,23 +1,26 @@
-const jsStack: any[] = [];
+const jsStack: StackValue[] = [];
+
+export type StackValue =
+  | string
+  | { value: Uint8Array; index: number; type: "blob" }
+  | { value: number; type: "ref" }
+  | null
+  | number;
 
 export function pushToStringStack(str: string) {
   jsStack.push(str);
 }
 
 export function pushBlobToStack(blob: Uint8Array) {
-  jsStack.push(blob);
+  jsStack.push({ value: blob, index: 0, type: "blob" });
 }
 
 export function getWholeStack(): any[] {
   return jsStack.splice(0, jsStack.length);
 }
 
-export function popObjectFromStack(): any {
-  const val = jsStack.pop();
-  if (val && typeof val === "object") {
-    return val.value;
-  }
-  return val;
+export function popObjectFromStack(): StackValue | null {
+  return jsStack.pop() ?? null;
 }
 
 function js_push_null(): void {
@@ -30,6 +33,10 @@ function js_put_i32(value: number): void {
 
 function js_put_f64(value: number): void {
   jsStack.push(value);
+}
+
+function js_put_ref(value: number): void {
+  jsStack.push({ value, type: "ref" });
 }
 
 function js_push_string_to_stack() {
@@ -50,19 +57,23 @@ function js_pop_stack(): void {
 }
 
 function js_read_string_length(): number {
-  return jsStack.at(-1)?.length ?? 0;
+  const last = jsStack.at(-1) as string;
+  return last.length;
 }
 
 function js_read_string(index: number): number {
-  return jsStack.at(-1)?.charCodeAt(index) ?? 0;
+  const last = jsStack.at(-1) as string;
+  return last.charCodeAt(index) ?? 0;
 }
 
 function js_read_blob_length(): number {
-  return jsStack.at(-1)?.length ?? 0;
+  const last = jsStack.at(-1) as { value: Uint8Array; index: number };
+  return last.value.length;
 }
 
 function js_read_blob_byte(index: number): number {
-  return jsStack.at(-1)?.[index] ?? 0;
+  const last = jsStack.at(-1) as { value: Uint8Array; index: number };
+  return last.value[index];
 }
 
 function js_performance_now() {
@@ -70,7 +81,7 @@ function js_performance_now() {
 }
 
 function js_create_blob(size: number) {
-  jsStack.push({ value: new Uint8Array(size), index: 0 });
+  jsStack.push({ value: new Uint8Array(size), index: 0, type: "blob" });
 }
 
 function js_push_to_blob(byte: number) {
@@ -98,6 +109,7 @@ const ops = {
   js_push_to_blob,
   js_read_blob_length,
   js_read_blob_byte,
+  js_put_ref,
   unsafe_worker_id: () => 0,
 };
 

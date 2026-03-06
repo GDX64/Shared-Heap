@@ -153,6 +153,12 @@ pub fn something_push_string() {
 }
 
 #[wasm_bindgen]
+pub fn something_push_ref_to_stack(value: u32) {
+    let something = Something::Ref(value);
+    push_something(something);
+}
+
+#[wasm_bindgen]
 pub fn something_push_f64_to_stack(value: f64) {
     let something = Something::Float(value);
     push_something(something);
@@ -195,7 +201,7 @@ fn push_to_js_stack(value: &Something) {
             }
         }
         Something::Ref(r) => {
-            safe_put_ref(*r);
+            js_put_ref(*r);
         }
         Something::Null => {
             safe_push_null();

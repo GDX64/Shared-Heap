@@ -1,10 +1,11 @@
 import initModule, { type InitOutput } from "../pkg/any_store";
 import {
   popObjectFromStack,
+  pushBlobToStack,
   pushToStringStack,
   startWorkerID,
 } from "./importFunctions";
-import type { Blob, F64, I32, Null, Something, String } from "./types";
+import type { Blob, F64, I32, Null, Ref, Something, String } from "./types";
 
 type WorkerData = {
   memory: WebAssembly.Memory;
@@ -13,6 +14,7 @@ type WorkerData = {
 
 export class AnyStore {
   private workerID: number = 0;
+  private proxyMap: Map<number, any> = new Map();
 
   constructor(
     private mod: InitOutput,
@@ -38,18 +40,43 @@ export class AnyStore {
   createObject<T>(initial: T): T {
     const id = this.mod.create_object();
     const obj = createProxyForObject(id, this);
-    Object.assign(obj, initial);
+    this.proxyMap.set(id, obj);
+    for (const key in initial) {
+      const value = (initial as any)[key];
+      obj[key] = value;
+    }
     return obj;
   }
 
   getObjProperty(objID: number, prop: number): Something["value"] {
     this.mod.get_object_property(objID, prop);
-    return popObjectFromStack();
+    const result = popObjectFromStack();
+    if (result == null) {
+      return null;
+    }
+    if (typeof result === "object") {
+      if (result.type === "ref") {
+        return this.proxyMap.get(result.value) ?? null;
+      }
+      return result.value;
+    }
+    return result;
   }
 
-  setObjProperty(objID: number, prop: number, value: Something): void {
-    this.addToStack(value);
-    this.mod.set_object_property(objID, prop);
+  setObjProperty(objID: number, prop: number, value: unknown): void {
+    if (AnyStore.isProxy(value)) {
+      const id = AnyStore.getIDOfProxy(value);
+      this.addToStack(AnyStore.ref(id!));
+      this.mod.set_object_property(objID, prop);
+    } else if (typeof value === "object") {
+      const proxy = this.createObject(value);
+      const id = AnyStore.getIDOfProxy(proxy);
+      this.addToStack(AnyStore.ref(id!));
+      this.mod.set_object_property(objID, prop);
+    } else {
+      this.addToStack(AnyStore.somethingFromValue(value));
+      this.mod.set_object_property(objID, prop);
+    }
   }
 
   private addToStack(value: Something): void {
@@ -60,6 +87,13 @@ export class AnyStore {
     } else if (value.tag === "string") {
       pushToStringStack(value.value);
       this.mod.something_push_string();
+    } else if (value.tag === "blob") {
+      pushBlobToStack(value.value);
+      this.mod.something_push_blob();
+    } else if (value.tag === "null") {
+      this.mod.something_push_null_to_stack();
+    } else if (value.tag === "ref") {
+      this.mod.something_push_ref_to_stack(value.value);
     }
   }
 
@@ -91,7 +125,19 @@ export class AnyStore {
     return { tag: "null", value: null };
   }
 
-  static somethingFromValue(value: any): Something | null {
+  static ref(value: number): Ref {
+    return { tag: "ref", value };
+  }
+
+  static isProxy(value: any): boolean {
+    return value && typeof value === "object" && "__id" in value;
+  }
+
+  static getIDOfProxy(proxy: any): number | null {
+    return proxy.__id ?? null;
+  }
+
+  static somethingFromValue(value: unknown): Something {
     if (typeof value === "number") {
       if (Number.isInteger(value)) {
         return AnyStore.i32(value);
@@ -105,7 +151,7 @@ export class AnyStore {
     } else if (value instanceof Uint8Array) {
       return AnyStore.blob(value);
     }
-    return null;
+    return AnyStore.null();
   }
 }
 
@@ -114,17 +160,22 @@ type Target = {
   store: AnyStore;
 };
 
-const proxySchema = {
-  get(target: Target, prop: any) {
+const proxySchema: ProxyHandler<Target> = {
+  get(target: Target, prop: string) {
+    if (prop === "__id") {
+      return target.objID;
+    }
     return target.store.getObjProperty(target.objID, hash(prop));
   },
-  set(target: Target, prop: any, value: any) {
-    target.store.setObjProperty(
-      target.objID,
-      hash(prop),
-      AnyStore.somethingFromValue(value) ?? AnyStore.null(),
-    );
+  set(target: Target, prop: string, value: any) {
+    target.store.setObjProperty(target.objID, hash(prop), value);
     return true;
+  },
+  has(_target: Target, p) {
+    if (p === "__id") {
+      return true;
+    }
+    return false;
   },
 };
 

@@ -17,4 +17,22 @@ describe("hello", () => {
     expect(obj.bar).toBe(10.1);
     expect(obj.baz).toBe("hello");
   });
+  test("recursive", async () => {
+    const db = await AnyStore.create();
+    const fist = db.createObject({ name: "fist" });
+
+    const obj = db.createObject({
+      fist,
+      foo: {
+        bar: 10,
+        baz: {
+          qux: "world",
+        },
+      },
+    });
+
+    expect(obj.foo.bar).toBe(10);
+    expect(obj.foo.baz.qux).toBe("world");
+    expect(obj.fist.name).toBe("fist");
+  });
 });
