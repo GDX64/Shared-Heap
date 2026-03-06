@@ -44,8 +44,15 @@ export class AnyStore {
   }
 
   createObject<T>(initial: T): T {
-    const id = this.mod.create_object();
-    const obj = createProxyForObject(id, this);
+    let obj;
+    let id;
+    if (Array.isArray(initial)) {
+      id = this.mod.create_array();
+      obj = createProxyForArray(id, this);
+    } else {
+      id = this.mod.create_object();
+      obj = createProxyForObject(id, this);
+    }
     this.finalization.register(obj, id);
     this.proxyMap.set(id, new WeakRef(obj));
     for (const key in initial) {
@@ -83,6 +90,22 @@ export class AnyStore {
     } else {
       this.addToStack(AnyStore.somethingFromValue(value));
       this.mod.set_object_property(objID, prop);
+    }
+  }
+
+  arrayGetLength(objID: number): number {
+    return this.mod.array_get_length(objID);
+  }
+
+  arraySetLength(objID: number, length: number): void {
+    this.mod.array_set_length(objID, length);
+  }
+
+  setArrayElement(objID: number, index: number, value: unknown): void {
+    this.setObjProperty(objID, hash(index.toString()), value);
+    const currentLength = this.arrayGetLength(objID);
+    if (index >= currentLength) {
+      this.arraySetLength(objID, index + 1);
     }
   }
 
@@ -189,6 +212,41 @@ const proxySchema: ProxyHandler<Target> = {
 function createProxyForObject(objID: number, store: AnyStore): any {
   return new Proxy({ objID, store }, proxySchema);
 }
+
+function createProxyForArray(objID: number, store: AnyStore): any {
+  return new Proxy({ objID, store }, proxyArraySchema);
+}
+
+const proxyArraySchema: ProxyHandler<Target> = {
+  get(target: Target, prop: string) {
+    if (prop === "__id") {
+      return target.objID;
+    }
+    if (prop === "length") {
+      return target.store.arrayGetLength(target.objID);
+    }
+    // Check if it's a numeric index
+    const index = Number(prop);
+    if (!isNaN(index) && index >= 0 && Number.isInteger(index)) {
+      return target.store.getObjProperty(target.objID, hash(prop));
+    }
+    // For other properties, return the property value
+    return target.store.getObjProperty(target.objID, hash(prop));
+  },
+  set(target: Target, prop: string, value: any) {
+    // Check if it's a numeric index
+    const index = Number(prop);
+    if (!isNaN(index) && index >= 0 && Number.isInteger(index)) {
+      target.store.setArrayElement(target.objID, index, value);
+    } else {
+      target.store.setObjProperty(target.objID, hash(prop), value);
+    }
+    return true;
+  },
+  has(_target: Target, p) {
+    return p === "__id";
+  },
+};
 
 function hash(str: string): number {
   let hash = 2166136261;

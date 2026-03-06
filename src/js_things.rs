@@ -121,6 +121,33 @@ pub fn create_object() -> u32 {
 }
 
 #[wasm_bindgen]
+pub fn create_array() -> u32 {
+    let mut storage = GLOBALS.write();
+    let id = storage.create_object();
+    // Initialize length to 0
+    storage.set_object_property(id, 0xFFFFFFFF, Something::Int(0));
+    return id;
+}
+
+#[wasm_bindgen]
+pub fn array_get_length(array_id: u32) -> i32 {
+    let storage = GLOBALS.read();
+    if let Some(length) = storage.get_object_property(array_id, 0xFFFFFFFF) {
+        match length {
+            Something::Int(len) => return *len,
+            _ => return 0,
+        }
+    }
+    return 0;
+}
+
+#[wasm_bindgen]
+pub fn array_set_length(array_id: u32, length: i32) {
+    let mut storage = GLOBALS.write();
+    storage.set_object_property(array_id, 0xFFFFFFFF, Something::Int(length));
+}
+
+#[wasm_bindgen]
 pub fn set_object_property(object_id: u32, key: u32) {
     if let Some(value) = pop_from_something_stack() {
         let mut storage = GLOBALS.write();

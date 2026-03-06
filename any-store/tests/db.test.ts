@@ -35,4 +35,14 @@ describe("hello", () => {
     expect(obj.foo.baz.qux).toBe("world");
     expect(obj.fist.name).toBe("fist");
   });
+
+  test("arrays", async () => {
+    const db = await AnyStore.create();
+    const obj = db.createObject({ arr: [1, 2, 3] });
+
+    expect(obj.arr[0]).toBe(1);
+    expect(obj.arr[1]).toBe(2);
+    expect(obj.arr[2]).toBe(3);
+    expect(obj.arr.length).toBe(3);
+  });
 });
