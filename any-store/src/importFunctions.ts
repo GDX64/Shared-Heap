@@ -3,6 +3,7 @@ const jsStack: StackValue[] = [];
 export type StackValue =
   | string
   | { value: Uint8Array; index: number; type: "blob" }
+  | { ptr: number; len: number; type: "blobPointer" }
   | { value: number; type: "ref" }
   | null
   | number;
@@ -80,8 +81,8 @@ function js_performance_now() {
   return performance.now();
 }
 
-function js_create_blob(size: number) {
-  jsStack.push({ value: new Uint8Array(size), index: 0, type: "blob" });
+function js_create_blob(pointer: number, len: number) {
+  jsStack.push({ ptr: pointer, len, type: "blobPointer" });
 }
 
 function js_push_to_blob(byte: number) {

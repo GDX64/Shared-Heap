@@ -95,6 +95,10 @@ export class AnyStore {
     if (typeof result === "object") {
       if (result.type === "ref") {
         return this.proxyMap.get(result.value)?.deref() ?? null;
+      } else if (result.type === "blobPointer") {
+        const { len, ptr } = result;
+        const blob = new Uint8Array(this.memory.buffer, ptr, len);
+        return blob;
       }
       return result.value;
     }

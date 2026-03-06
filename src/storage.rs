@@ -44,6 +44,7 @@ impl Object {
 
 pub struct Storage {
     pub collection: HashMap<u32, Object>,
+    pub blobs: HashMap<u32, Vec<u8>>,
     last_id: u32,
 }
 
@@ -52,6 +53,7 @@ impl Storage {
         Storage {
             collection: HashMap::new(),
             last_id: 0,
+            blobs: HashMap::new(),
         }
     }
 
@@ -63,6 +65,18 @@ impl Storage {
         };
 
         return Some(());
+    }
+
+    pub fn get_blob_pointer(&self, id: u32) -> Option<(*const u8, usize)> {
+        let blob = self.blobs.get(&id)?;
+        return Some((blob.as_ptr(), blob.len()));
+    }
+
+    pub fn add_blob(&mut self, data: Vec<u8>) -> u32 {
+        let id = self.last_id;
+        self.last_id += 1;
+        self.blobs.insert(id, data);
+        return id;
     }
 
     pub fn increment_object_references(&mut self, id: u32) -> Option<bool> {

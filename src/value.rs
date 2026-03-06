@@ -13,7 +13,7 @@ pub enum Something {
     Int(i32),
     Float(f64),
     String(Vec<u8>),
-    Blob(Vec<u8>),
+    Blob(u32),
     Ref(u32),
     Null,
 }

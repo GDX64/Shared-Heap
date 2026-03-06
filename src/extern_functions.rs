@@ -38,7 +38,7 @@ mod extern_functions_mod {
         #[wasm_bindgen]
         fn js_push_null();
         #[wasm_bindgen]
-        fn js_create_blob(size: usize);
+        fn js_create_blob(size: usize, len: usize);
         #[wasm_bindgen]
         fn js_push_to_blob(byte: u8);
         #[wasm_bindgen]
@@ -105,12 +105,8 @@ mod extern_functions_mod {
         safe_log_stack_value();
     }
 
-    pub fn safe_create_blob(size: usize) {
-        js_create_blob(size);
-    }
-
-    pub fn safe_push_to_blob(byte: u8) {
-        js_push_to_blob(byte);
+    pub fn safe_create_blob(ptr: usize, len: usize) {
+        js_create_blob(ptr, len);
     }
 
     pub fn safe_read_blob_length() -> usize {

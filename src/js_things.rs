@@ -106,7 +106,7 @@ pub fn lock_pointer() -> *const i32 {
 pub fn get_object_property(object_id: u32, key: u32) {
     let storage = GLOBALS.read();
     if let Some(obj) = storage.get_object_property(object_id, key) {
-        push_to_js_stack(&obj);
+        push_to_js_stack(&obj, &storage);
     }
 }
 
@@ -228,11 +228,12 @@ pub fn something_push_blob() {
         bytes.push(byte);
     }
     safe_js_pop_stack();
-    let something = Something::Blob(bytes);
+    let id = GLOBALS.write().add_blob(bytes);
+    let something = Something::Blob(id);
     push_something(something);
 }
 
-fn push_to_js_stack(value: &Something) {
+fn push_to_js_stack(value: &Something, db: &Storage) {
     match value {
         Something::Int(v) => {
             safe_put_i32(*v);
@@ -243,10 +244,10 @@ fn push_to_js_stack(value: &Something) {
                 safe_push_to_string(*byte);
             }
         }
-        Something::Blob(b) => {
-            safe_create_blob(b.len());
-            for byte in b {
-                safe_push_to_blob(*byte);
+        Something::Blob(id) => {
+            let ptr = db.get_blob_pointer(*id);
+            if let Some((blob_ptr, len)) = ptr {
+                safe_create_blob(blob_ptr as usize, len);
             }
         }
         Something::Ref(r) => {
