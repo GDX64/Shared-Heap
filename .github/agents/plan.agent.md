@@ -10,5 +10,6 @@ and webassembly to leverage binary data manipulation since shared memory is an a
 
 - use `npm run wasm` to build the wasm module
 - use `npm run test-ci` to run all tests (node and browser)
+- to run benchmarks use `npm run bench -- --run`
 
 The main goal of this library is to interact with shared memory in the same way we would with normal data objects in js.
