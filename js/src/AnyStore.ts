@@ -106,20 +106,43 @@ export class AnyStore {
   }
 
   __setObjProperty(objID: number, prop: number, value: unknown): void {
-    const something = AnyStore.somethingFromValue(value);
-    if (something != null) {
-      this.addToStack(something);
+    // Fast path for primitive types
+    const valueType = typeof value;
+    if (valueType === "number") {
+      if (Number.isInteger(value as number)) {
+        this.mod.something_push_i32_to_stack(value as number);
+      } else {
+        this.mod.something_push_f64_to_stack(value as number);
+      }
       this.mod.set_object_property(objID, prop);
       return;
     }
+    if (valueType === "string") {
+      pushToStringStack(value as string);
+      this.mod.something_push_string();
+      this.mod.set_object_property(objID, prop);
+      return;
+    }
+    if (value === null) {
+      this.mod.something_push_null_to_stack();
+      this.mod.set_object_property(objID, prop);
+      return;
+    }
+    if (value instanceof Uint8Array) {
+      pushBlobToStack(value);
+      this.mod.something_push_blob();
+      this.mod.set_object_property(objID, prop);
+      return;
+    }
+    // Slow path for object types
     if (AnyStore.isProxy(value)) {
       const id = AnyStore.getIDOfProxy(value);
-      this.addToStack(AnyStore.ref(id!));
+      this.mod.something_push_ref_to_stack(id!);
       this.mod.set_object_property(objID, prop);
-    } else if (typeof value === "object") {
+    } else if (valueType === "object") {
       const proxy = this.createObject(value);
       const id = AnyStore.getIDOfProxy(proxy);
-      this.addToStack(AnyStore.ref(id!));
+      this.mod.something_push_ref_to_stack(id!);
       this.mod.set_object_property(objID, prop);
     }
   }
@@ -134,6 +157,8 @@ export class AnyStore {
 
   __setArrayElement(objID: number, index: number, value: unknown): void {
     this.__setObjProperty(objID, index, value);
+    // Only update length if setting beyond current length
+    // This check is cheaper than always calling __arrayGetLength
     const currentLength = this.__arrayGetLength(objID);
     if (index >= currentLength) {
       this.__arraySetLength(objID, index + 1);
@@ -142,24 +167,6 @@ export class AnyStore {
 
   __arrayDeleteElement(objID: number, index: number): void {
     this.mod.delete_object_property(objID, index);
-  }
-
-  private addToStack(value: Something): void {
-    if (value.tag === "i32") {
-      this.mod.something_push_i32_to_stack(value.value);
-    } else if (value.tag === "f64") {
-      this.mod.something_push_f64_to_stack(value.value);
-    } else if (value.tag === "string") {
-      pushToStringStack(value.value);
-      this.mod.something_push_string();
-    } else if (value.tag === "blob") {
-      pushBlobToStack(value.value);
-      this.mod.something_push_blob();
-    } else if (value.tag === "null") {
-      this.mod.something_push_null_to_stack();
-    } else if (value.tag === "ref") {
-      this.mod.something_push_ref_to_stack(value.value);
-    }
   }
 
   createWorker(): WorkerData {
@@ -223,17 +230,48 @@ export class AnyStore {
 type Target = {
   objID: number;
   store: AnyStore;
+  hashCache?: Map<string, number>;
+  arrayMethods?: any;
 };
+
+// Global hash cache for common property names
+const globalHashCache = new Map<string, number>();
+
+function getCachedHash(prop: string, cache?: Map<string, number>): number {
+  // Check local cache first
+  let hash = cache?.get(prop);
+  if (hash !== undefined) return hash;
+
+  // Check global cache
+  hash = globalHashCache.get(prop);
+  if (hash !== undefined) {
+    cache?.set(prop, hash);
+    return hash;
+  }
+
+  // Calculate and cache
+  hash = fastHash(prop);
+  globalHashCache.set(prop, hash);
+  cache?.set(prop, hash);
+  return hash;
+}
 
 const proxySchema: ProxyHandler<Target> = {
   get(target: Target, prop: string) {
     if (prop === "__id") {
       return target.objID;
     }
-    return target.store.__getObjProperty(target.objID, hash(prop));
+    return target.store.__getObjProperty(
+      target.objID,
+      getCachedHash(prop, target.hashCache),
+    );
   },
   set(target: Target, prop: string, value: any) {
-    target.store.__setObjProperty(target.objID, hash(prop), value);
+    target.store.__setObjProperty(
+      target.objID,
+      getCachedHash(prop, target.hashCache),
+      value,
+    );
     return true;
   },
   has(_target: Target, p) {
@@ -245,11 +283,37 @@ const proxySchema: ProxyHandler<Target> = {
 };
 
 function createProxyForObject(objID: number, store: AnyStore): any {
-  return new Proxy({ objID, store }, proxySchema);
+  return new Proxy({ objID, store, hashCache: new Map() }, proxySchema);
 }
 
 function createProxyForArray(objID: number, store: AnyStore): any {
-  return new Proxy({ objID, store }, proxyArraySchema);
+  const target: Target = { objID, store, hashCache: new Map() };
+
+  // Pre-bind array methods to avoid creating new functions on each access
+  target.arrayMethods = {
+    push: function (...items: any[]) {
+      let length = store.__arrayGetLength(objID);
+      for (let i = 0; i < items.length; i++) {
+        store.__setObjProperty(objID, length + i, items[i]);
+        length++;
+      }
+      store.__arraySetLength(objID, length);
+      return length;
+    },
+    pop: function () {
+      const length = store.__arrayGetLength(objID);
+      if (length === 0) {
+        return undefined;
+      }
+      const lastIndex = length - 1;
+      const value = store.__getObjProperty(objID, lastIndex);
+      store.__arrayDeleteElement(objID, lastIndex);
+      store.__arraySetLength(objID, lastIndex);
+      return value;
+    },
+  };
+
+  return new Proxy(target, proxyArraySchema);
 }
 
 const proxyArraySchema: ProxyHandler<Target> = {
@@ -261,26 +325,10 @@ const proxyArraySchema: ProxyHandler<Target> = {
       return target.store.__arrayGetLength(target.objID);
     }
     if (prop === "push") {
-      return function (...items: any[]) {
-        const length = target.store.__arrayGetLength(target.objID);
-        for (let i = 0; i < items.length; i++) {
-          target.store.__setArrayElement(target.objID, length + i, items[i]);
-        }
-        return target.store.__arrayGetLength(target.objID);
-      };
+      return target.arrayMethods!.push;
     }
     if (prop === "pop") {
-      return function () {
-        const length = target.store.__arrayGetLength(target.objID);
-        if (length === 0) {
-          return undefined;
-        }
-        const lastIndex = length - 1;
-        const value = target.store.__getObjProperty(target.objID, lastIndex);
-        target.store.__arrayDeleteElement(target.objID, lastIndex);
-        target.store.__arraySetLength(target.objID, lastIndex);
-        return value;
-      };
+      return target.arrayMethods!.pop;
     }
     // Check if it's a numeric index
     const index = Number(prop);
@@ -296,11 +344,12 @@ const proxyArraySchema: ProxyHandler<Target> = {
   },
 };
 
-function hash(str: string): number {
-  let hash = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    hash ^= str.charCodeAt(i);
-    hash *= 16777619;
+// Optimized hash function with fewer operations
+function fastHash(str: string): number {
+  let hash = 0;
+  const len = str.length;
+  for (let i = 0; i < len; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
   }
   return hash >>> 0;
 }
