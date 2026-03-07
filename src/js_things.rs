@@ -3,7 +3,7 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use crate::{
     extern_functions::*,
     my_rwlock::{MyRwLock, ReadGuard, WriteGuard},
-    storage::Storage,
+    storage::{ObjectKind, Storage},
     value::Something,
 };
 use std::{cell::RefCell, sync::LazyLock};
@@ -121,19 +121,25 @@ pub fn increment_object_references(object_id: u32) -> bool {
 #[wasm_bindgen]
 pub fn drop_object(id: u32) {
     let mut storage = GLOBALS.write();
-    storage.drop_object(id);
+    storage.try_drop(id);
+}
+
+#[wasm_bindgen]
+pub fn get_reference_count(object_id: u32) -> i32 {
+    let storage = GLOBALS.read();
+    return storage.get_reference_count(object_id).unwrap_or(0) as i32;
 }
 
 #[wasm_bindgen]
 pub fn create_object() -> u32 {
     let mut storage = GLOBALS.write();
-    return storage.create_object();
+    return storage.create_object(ObjectKind::Object);
 }
 
 #[wasm_bindgen]
 pub fn create_array() -> u32 {
     let mut storage = GLOBALS.write();
-    let id = storage.create_object();
+    let id = storage.create_object(ObjectKind::Array);
     // Initialize length to 0
     storage.set_object_property(id, ARRAY_LENGTH, Something::Int(0));
     return id;

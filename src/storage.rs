@@ -7,6 +7,11 @@ pub struct Object {
     references: u32,
 }
 
+pub enum ObjectKind {
+    Object = 0,
+    Array = 1,
+}
+
 impl Object {
     pub fn new() -> Self {
         Object {
@@ -29,8 +34,8 @@ impl Object {
         return self.references > 0;
     }
 
-    pub fn set_property(&mut self, key: u32, value: Something) {
-        self.properties.insert(key, value);
+    pub fn set_property(&mut self, key: u32, value: Something) -> Option<Something> {
+        return self.properties.insert(key, value);
     }
 
     pub fn get_property(&self, key: u32) -> Option<&Something> {
@@ -57,14 +62,24 @@ impl Storage {
         }
     }
 
-    pub fn drop_object(&mut self, id: u32) -> Option<()> {
+    pub fn try_drop(&mut self, id: u32) -> Option<()> {
         let obj = self.collection.get_mut(&id)?;
         obj.decrement_references();
         if !obj.has_references() {
-            self.collection.remove(&id);
+            let obj = self.collection.remove(&id)?;
+            obj.properties.into_iter().for_each(|(_, s)| {
+                if let Something::Ref(to) = s {
+                    self.try_drop(to);
+                }
+            });
         };
 
         return Some(());
+    }
+
+    pub fn get_reference_count(&self, id: u32) -> Option<u32> {
+        let obj = self.collection.get(&id)?;
+        return Some(obj.references);
     }
 
     pub fn get_blob_pointer(&self, id: u32) -> Option<(*const u8, usize)> {
@@ -85,9 +100,11 @@ impl Storage {
         return Some(true);
     }
 
-    pub fn create_object(&mut self) -> u32 {
-        let id = self.last_id;
-        self.last_id += 1;
+    pub fn create_object(&mut self, kind: ObjectKind) -> u32 {
+        let id = match kind {
+            ObjectKind::Object => self.object_id(),
+            ObjectKind::Array => self.array_id(),
+        };
         self.collection.insert(id, Object::new());
         return id;
     }
@@ -103,7 +120,9 @@ impl Storage {
             }
         }
         if let Some(object) = self.collection.get_mut(&object_id) {
-            object.set_property(key, value);
+            if let Some(Something::Ref(id)) = object.set_property(key, value) {
+                self.try_drop(id);
+            }
         }
     }
 
@@ -122,5 +141,17 @@ impl Storage {
             obj.decrement_references();
         };
         return Some(prop);
+    }
+
+    fn object_id(&mut self) -> u32 {
+        let id = self.last_id;
+        self.last_id += 1;
+        return id << 1;
+    }
+
+    fn array_id(&mut self) -> u32 {
+        let id = self.last_id;
+        self.last_id += 1;
+        return (id << 1) | 0b1;
     }
 }

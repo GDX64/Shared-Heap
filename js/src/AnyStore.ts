@@ -1,4 +1,4 @@
-import initModule, { type InitOutput } from "../pkg/any_store";
+import initModule, { type InitOutput } from "../pkg/shared_heap";
 import {
   popObjectFromStack,
   pushBlobToStack,
@@ -22,9 +22,29 @@ export class AnyStore {
     private memory: WebAssembly.Memory,
   ) {
     this.finalization = new FinalizationRegistry((id: number) => {
-      this.proxyMap.delete(id);
-      this.mod.drop_object(id);
+      this.drop(id);
     });
+  }
+
+  drop(obj: unknown): void {
+    let id;
+    if (typeof obj === "number") {
+      id = obj;
+    } else {
+      id = AnyStore.getIDOfProxy(obj);
+    }
+    this.proxyMap.delete(id!);
+    this.mod.drop_object(id!);
+  }
+
+  getReferenceCount(obj: any): number {
+    let id;
+    if (typeof obj === "number") {
+      id = obj;
+    } else {
+      id = AnyStore.getIDOfProxy(obj);
+    }
+    return this.mod.get_reference_count(id!);
   }
 
   static async create() {
@@ -52,22 +72,30 @@ export class AnyStore {
     }
   }
 
-  createObject<T>(initial: T): T {
-    let obj;
+  createObject<T>(initial: T): T & { heapID: number } {
     let id;
     if (Array.isArray(initial)) {
       id = this.mod.create_array();
-      obj = createProxyForArray(id, this);
     } else {
       id = this.mod.create_object();
-      obj = createProxyForObject(id, this);
     }
-    this.finalization.register(obj, id);
-    this.proxyMap.set(id, new WeakRef(obj));
+    const obj = this.createProxyForID(id);
     for (const key in initial) {
       const value = (initial as any)[key];
       obj[key] = value;
     }
+    return obj;
+  }
+
+  private createProxyForID(id: number): any {
+    let obj;
+    if (isArrayID(id)) {
+      obj = createProxyForArray(id, this);
+    } else {
+      obj = createProxyForObject(id, this);
+    }
+    this.proxyMap.set(id, new WeakRef(obj));
+    this.finalization.register(obj, id);
     return obj;
   }
 
@@ -80,10 +108,7 @@ export class AnyStore {
     if (!exists) {
       return null;
     }
-    const obj = createProxyForObject(id, this);
-    this.finalization.register(obj, id);
-    this.proxyMap.set(id, new WeakRef(obj));
-    return obj;
+    return this.createProxyForID(id);
   }
 
   __getObjProperty(objID: number, prop: number): Something["value"] {
@@ -94,7 +119,7 @@ export class AnyStore {
     }
     if (typeof result === "object") {
       if (result.type === "ref") {
-        return this.proxyMap.get(result.value)?.deref() ?? null;
+        return this.getObject(result.value);
       } else if (result.type === "blobPointer") {
         const { len, ptr } = result;
         const blob = new Uint8Array(this.memory.buffer, ptr, len);
@@ -202,11 +227,11 @@ export class AnyStore {
   }
 
   static isProxy(value: any): boolean {
-    return value && typeof value === "object" && "__id" in value;
+    return value && typeof value === "object" && "heapID" in value;
   }
 
   static getIDOfProxy(proxy: any): number | null {
-    return proxy.__id ?? null;
+    return proxy.heapID ?? null;
   }
 
   static somethingFromValue(value: unknown): Something | null {
@@ -228,7 +253,7 @@ export class AnyStore {
 }
 
 type Target = {
-  __objID: number;
+  heapID: number;
   __store: AnyStore;
   push?: typeof arrayPush;
   pop?: typeof arrayPop;
@@ -236,17 +261,17 @@ type Target = {
 
 const proxySchema: ProxyHandler<Target> = {
   get(target: Target, prop: string) {
-    if (prop === "__id") {
-      return target.__objID;
+    if (prop === "heapID") {
+      return target.heapID;
     }
-    return target.__store.__getObjProperty(target.__objID, fastHash(prop));
+    return target.__store.__getObjProperty(target.heapID, fastHash(prop));
   },
   set(target: Target, prop: string, value: any) {
-    target.__store.__setObjProperty(target.__objID, fastHash(prop), value);
+    target.__store.__setObjProperty(target.heapID, fastHash(prop), value);
     return true;
   },
   has(_target: Target, p) {
-    if (p === "__id") {
+    if (p === "heapID") {
       return true;
     }
     return false;
@@ -254,34 +279,34 @@ const proxySchema: ProxyHandler<Target> = {
 };
 
 function createProxyForObject(objID: number, store: AnyStore): any {
-  return new Proxy({ __objID: objID, __store: store }, proxySchema);
+  return new Proxy({ heapID: objID, __store: store }, proxySchema);
 }
 
 function arrayPush(this: Target, ...items: any[]): number {
-  let length = this.__store.__arrayGetLength(this.__objID);
+  let length = this.__store.__arrayGetLength(this.heapID);
   for (let i = 0; i < items.length; i++) {
-    this.__store.__setObjProperty(this.__objID, length + i, items[i]);
+    this.__store.__setObjProperty(this.heapID, length + i, items[i]);
     length++;
   }
-  this.__store.__arraySetLength(this.__objID, length);
+  this.__store.__arraySetLength(this.heapID, length);
   return length;
 }
 
 function arrayPop(this: Target): any {
-  const length = this.__store.__arrayGetLength(this.__objID);
+  const length = this.__store.__arrayGetLength(this.heapID);
   if (length === 0) {
     return undefined;
   }
   const lastIndex = length - 1;
-  const value = this.__store.__getObjProperty(this.__objID, lastIndex);
-  this.__store.__arrayDeleteElement(this.__objID, lastIndex);
-  this.__store.__arraySetLength(this.__objID, lastIndex);
+  const value = this.__store.__getObjProperty(this.heapID, lastIndex);
+  this.__store.__arrayDeleteElement(this.heapID, lastIndex);
+  this.__store.__arraySetLength(this.heapID, lastIndex);
   return value;
 }
 
 function createProxyForArray(objID: number, store: AnyStore): any {
   const target: Target = {
-    __objID: objID,
+    heapID: objID,
     __store: store,
     push: arrayPush,
     pop: arrayPop,
@@ -293,13 +318,12 @@ function createProxyForArray(objID: number, store: AnyStore): any {
 const proxyArraySchema: ProxyHandler<Target> = {
   get(target: Target, prop: string) {
     switch (prop) {
-      case "__id":
-      case "__objID":
-        return target.__objID;
+      case "heapID":
+        return target.heapID;
       case "__store":
         return target.__store;
       case "length":
-        return target.__store.__arrayGetLength(target.__objID);
+        return target.__store.__arrayGetLength(target.heapID);
       case "push":
         return target.push;
       case "pop":
@@ -307,15 +331,15 @@ const proxyArraySchema: ProxyHandler<Target> = {
     }
     // Check if it's a numeric index
     const index = Number(prop);
-    return target.__store.__getObjProperty(target.__objID, index);
+    return target.__store.__getObjProperty(target.heapID, index);
   },
   set(target: Target, prop: string, value: any) {
     const index = Number(prop);
-    target.__store.__setArrayElement(target.__objID, index, value);
+    target.__store.__setArrayElement(target.heapID, index, value);
     return true;
   },
   has(_target: Target, p) {
-    return p === "__id";
+    return p === "heapID";
   },
 };
 
@@ -326,4 +350,10 @@ function fastHash(str: string): number {
     hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
   }
   return hash >>> 0;
+}
+
+const ARRAY_MASK = 0b1;
+
+function isArrayID(objID: number): boolean {
+  return (objID & ARRAY_MASK) !== 0;
 }
