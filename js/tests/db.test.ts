@@ -138,4 +138,29 @@ describe("hello", () => {
     expect(db.getReferenceCount(childID)).toBe(0);
     expect(obj.child).toBeNullable();
   });
+
+  test("discover type", async () => {
+    const db = await AnyStore.create();
+    //we will simulate receiving the value from another thread
+    const obj = db.createObject({
+      nested: { name: "nested" },
+      arr: [1, 2, 3],
+    });
+
+    const objID = obj.heapID;
+
+    const anotherDB = await AnyStore.fromModule(db.createWorker());
+
+    const nested = anotherDB.getObject<typeof obj>(objID);
+
+    expect(nested?.nested.name).toBe("nested");
+    expect(nested?.arr[0]).toBe(1);
+
+    //we have two refs, one in each db
+    expect(db.getReferenceCount(obj)).toBe(2);
+    anotherDB.drop(obj);
+    expect(db.getReferenceCount(obj)).toBe(1);
+    db.drop(obj);
+    expect(db.getReferenceCount(obj)).toBe(0);
+  });
 });
