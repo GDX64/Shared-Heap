@@ -48,7 +48,7 @@ mod extern_functions_mod {
         #[wasm_bindgen]
         fn unsafe_worker_id() -> i32;
         #[wasm_bindgen]
-        pub fn js_put_ref(value: u32);
+        pub fn js_put_ref(value: u64);
     }
 
     pub fn is_main_thread() -> bool {
@@ -184,7 +184,7 @@ mod extern_functions_mod {
         });
     }
 
-    pub fn js_put_ref(value: u32) {
+    pub fn js_put_ref(value: u64) {
         STACK.with(|stack| {
             stack.borrow_mut().push(MockValue::Int(value as i32));
         });

@@ -8,7 +8,7 @@ use crate::{
 };
 use std::{cell::RefCell, sync::LazyLock};
 
-const ARRAY_LENGTH: u32 = u32::MAX;
+const ARRAY_LENGTH: u64 = u64::MAX;
 
 struct SomethingStack {
     stack: Vec<Something>,
@@ -103,7 +103,7 @@ pub fn lock_pointer() -> *const i32 {
 }
 
 #[wasm_bindgen]
-pub fn get_object_property(object_id: u32, key: u32) {
+pub fn get_object_property(object_id: u64, key: u64) {
     let storage = GLOBALS.read();
     if let Some(obj) = storage.get_object_property(object_id, key) {
         push_to_js_stack(&obj, &storage);
@@ -111,7 +111,7 @@ pub fn get_object_property(object_id: u32, key: u32) {
 }
 
 #[wasm_bindgen]
-pub fn increment_object_references(object_id: u32) -> bool {
+pub fn increment_object_references(object_id: u64) -> bool {
     let mut storage = GLOBALS.write();
     return storage
         .increment_object_references(object_id)
@@ -119,25 +119,25 @@ pub fn increment_object_references(object_id: u32) -> bool {
 }
 
 #[wasm_bindgen]
-pub fn drop_object(id: u32) {
+pub fn drop_object(id: u64) {
     let mut storage = GLOBALS.write();
     storage.try_drop(id);
 }
 
 #[wasm_bindgen]
-pub fn get_reference_count(object_id: u32) -> i32 {
+pub fn get_reference_count(object_id: u64) -> i32 {
     let storage = GLOBALS.read();
     return storage.get_reference_count(object_id).unwrap_or(0) as i32;
 }
 
 #[wasm_bindgen]
-pub fn create_object() -> u32 {
+pub fn create_object() -> u64 {
     let mut storage = GLOBALS.write();
     return storage.create_object(ObjectKind::Object);
 }
 
 #[wasm_bindgen]
-pub fn create_array() -> u32 {
+pub fn create_array() -> u64 {
     let mut storage = GLOBALS.write();
     let id = storage.create_object(ObjectKind::Array);
     // Initialize length to 0
@@ -146,7 +146,7 @@ pub fn create_array() -> u32 {
 }
 
 #[wasm_bindgen]
-pub fn array_get_length(array_id: u32) -> i32 {
+pub fn array_get_length(array_id: u64) -> i32 {
     let storage = GLOBALS.read();
     if let Some(length) = storage.get_object_property(array_id, ARRAY_LENGTH) {
         match length {
@@ -158,19 +158,19 @@ pub fn array_get_length(array_id: u32) -> i32 {
 }
 
 #[wasm_bindgen]
-pub fn array_set_length(array_id: u32, length: i32) {
+pub fn array_set_length(array_id: u64, length: i32) {
     let mut storage = GLOBALS.write();
     storage.set_object_property(array_id, ARRAY_LENGTH, Something::Int(length));
 }
 
 #[wasm_bindgen]
-pub fn delete_object_property(object_id: u32, key: u32) {
+pub fn delete_object_property(object_id: u64, key: u64) {
     let mut storage = GLOBALS.write();
     storage.delete_object_property(object_id, key);
 }
 
 #[wasm_bindgen]
-pub fn set_object_property(object_id: u32, key: u32) {
+pub fn set_object_property(object_id: u64, key: u64) {
     if let Some(value) = pop_from_something_stack() {
         let mut storage = GLOBALS.write();
         storage.set_object_property(object_id, key, value);
@@ -208,7 +208,7 @@ pub fn something_push_string() {
 }
 
 #[wasm_bindgen]
-pub fn something_push_ref_to_stack(value: u32) {
+pub fn something_push_ref_to_stack(value: u64) {
     let something = Something::Ref(value);
     push_something(something);
 }

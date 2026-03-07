@@ -4,7 +4,7 @@ export type StackValue =
   | string
   | { value: Uint8Array; index: number; type: "blob" }
   | { ptr: number; len: number; type: "blobPointer" }
-  | { value: number; type: "ref" }
+  | { value: bigint; type: "ref" }
   | null
   | number;
 
@@ -36,7 +36,7 @@ function js_put_f64(value: number): void {
   jsStack.push(value);
 }
 
-function js_put_ref(value: number): void {
+function js_put_ref(value: bigint): void {
   jsStack.push({ value, type: "ref" });
 }
 

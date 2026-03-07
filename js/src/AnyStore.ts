@@ -14,21 +14,21 @@ type WorkerData = {
 
 export class AnyStore {
   private workerID: number = 0;
-  private proxyMap: Map<number, WeakRef<any>> = new Map();
-  private finalization: FinalizationRegistry<number>;
+  private proxyMap: Map<bigint, WeakRef<any>> = new Map();
+  private finalization: FinalizationRegistry<bigint>;
 
   constructor(
     private mod: InitOutput,
     private memory: WebAssembly.Memory,
   ) {
-    this.finalization = new FinalizationRegistry((id: number) => {
+    this.finalization = new FinalizationRegistry((id: bigint) => {
       this.drop(id);
     });
   }
 
   drop(obj: unknown): void {
     let id;
-    if (typeof obj === "number") {
+    if (typeof obj === "bigint") {
       id = obj;
     } else {
       id = AnyStore.getIDOfProxy(obj);
@@ -39,7 +39,7 @@ export class AnyStore {
 
   getReferenceCount(obj: any): number {
     let id;
-    if (typeof obj === "number") {
+    if (typeof obj === "bigint") {
       id = obj;
     } else {
       id = AnyStore.getIDOfProxy(obj);
@@ -72,7 +72,7 @@ export class AnyStore {
     }
   }
 
-  createObject<T>(initial: T): T & { heapID: number } {
+  createObject<T>(initial: T): T & { heapID: bigint } {
     let id;
     if (Array.isArray(initial)) {
       id = this.mod.create_array();
@@ -87,7 +87,7 @@ export class AnyStore {
     return obj;
   }
 
-  private createProxyForID(id: number): any {
+  private createProxyForID(id: bigint): any {
     let obj;
     if (isArrayID(id)) {
       obj = createProxyForArray(id, this);
@@ -99,7 +99,7 @@ export class AnyStore {
     return obj;
   }
 
-  getObject<T>(id: number): T | null {
+  getObject<T>(id: bigint): T | null {
     const proxy = this.proxyMap.get(id)?.deref();
     if (proxy) {
       return proxy;
@@ -111,7 +111,7 @@ export class AnyStore {
     return this.createProxyForID(id);
   }
 
-  __getObjProperty(objID: number, prop: number): Something["value"] {
+  __getObjProperty(objID: bigint, prop: bigint): Something["value"] {
     this.mod.get_object_property(objID, prop);
     const result = popObjectFromStack();
     if (result == null) {
@@ -130,7 +130,7 @@ export class AnyStore {
     return result;
   }
 
-  __setObjProperty(objID: number, prop: number, value: unknown): void {
+  __setObjProperty(objID: bigint, prop: bigint, value: unknown): void {
     // Fast path for primitive types
     const valueType = typeof value;
     if (valueType === "number") {
@@ -172,16 +172,16 @@ export class AnyStore {
     }
   }
 
-  __arrayGetLength(objID: number): number {
+  __arrayGetLength(objID: bigint): number {
     return this.mod.array_get_length(objID);
   }
 
-  __arraySetLength(objID: number, length: number): void {
+  __arraySetLength(objID: bigint, length: number): void {
     this.mod.array_set_length(objID, length);
   }
 
-  __setArrayElement(objID: number, index: number, value: unknown): void {
-    this.__setObjProperty(objID, index, value);
+  __setArrayElement(objID: bigint, index: number, value: unknown): void {
+    this.__setObjProperty(objID, BigInt(index), value);
     // Only update length if setting beyond current length
     // This check is cheaper than always calling __arrayGetLength
     const currentLength = this.__arrayGetLength(objID);
@@ -190,8 +190,8 @@ export class AnyStore {
     }
   }
 
-  __arrayDeleteElement(objID: number, index: number): void {
-    this.mod.delete_object_property(objID, index);
+  __arrayDeleteElement(objID: bigint, index: number): void {
+    this.mod.delete_object_property(objID, BigInt(index));
   }
 
   createWorker(): WorkerData {
@@ -222,7 +222,7 @@ export class AnyStore {
     return { tag: "null", value: null };
   }
 
-  static ref(value: number): Ref {
+  static ref(value: bigint): Ref {
     return { tag: "ref", value };
   }
 
@@ -230,7 +230,7 @@ export class AnyStore {
     return value && typeof value === "object" && "heapID" in value;
   }
 
-  static getIDOfProxy(proxy: any): number | null {
+  static getIDOfProxy(proxy: any): bigint | null {
     return proxy.heapID ?? null;
   }
 
@@ -253,7 +253,7 @@ export class AnyStore {
 }
 
 type Target = {
-  heapID: number;
+  heapID: bigint;
   __store: AnyStore;
   push?: typeof arrayPush;
   pop?: typeof arrayPop;
@@ -278,14 +278,14 @@ const proxySchema: ProxyHandler<Target> = {
   },
 };
 
-function createProxyForObject(objID: number, store: AnyStore): any {
+function createProxyForObject(objID: bigint, store: AnyStore): any {
   return new Proxy({ heapID: objID, __store: store }, proxySchema);
 }
 
 function arrayPush(this: Target, ...items: any[]): number {
   let length = this.__store.__arrayGetLength(this.heapID);
   for (let i = 0; i < items.length; i++) {
-    this.__store.__setObjProperty(this.heapID, length + i, items[i]);
+    this.__store.__setObjProperty(this.heapID, BigInt(length + i), items[i]);
     length++;
   }
   this.__store.__arraySetLength(this.heapID, length);
@@ -298,13 +298,13 @@ function arrayPop(this: Target): any {
     return undefined;
   }
   const lastIndex = length - 1;
-  const value = this.__store.__getObjProperty(this.heapID, lastIndex);
+  const value = this.__store.__getObjProperty(this.heapID, BigInt(lastIndex));
   this.__store.__arrayDeleteElement(this.heapID, lastIndex);
   this.__store.__arraySetLength(this.heapID, lastIndex);
   return value;
 }
 
-function createProxyForArray(objID: number, store: AnyStore): any {
+function createProxyForArray(objID: bigint, store: AnyStore): any {
   const target: Target = {
     heapID: objID,
     __store: store,
@@ -331,7 +331,7 @@ const proxyArraySchema: ProxyHandler<Target> = {
     }
     // Check if it's a numeric index
     const index = Number(prop);
-    return target.__store.__getObjProperty(target.heapID, index);
+    return target.__store.__getObjProperty(target.heapID, BigInt(index));
   },
   set(target: Target, prop: string, value: any) {
     const index = Number(prop);
@@ -343,17 +343,15 @@ const proxyArraySchema: ProxyHandler<Target> = {
   },
 };
 
-function fastHash(str: string): number {
+function fastHash(str: string): bigint {
   let hash = 0;
   const len = str.length;
   for (let i = 0; i < len; i++) {
     hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
   }
-  return hash >>> 0;
+  return BigInt(hash >>> 0);
 }
 
-const ARRAY_MASK = 0b1;
-
-function isArrayID(objID: number): boolean {
-  return (objID & ARRAY_MASK) !== 0;
+function isArrayID(objID: bigint): boolean {
+  return (objID & 0b1n) !== 0n;
 }
