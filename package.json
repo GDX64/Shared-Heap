@@ -1,13 +1,13 @@
 {
-  "name": "@glmachado/any-store",
+  "name": "@glmachado/shared-heap",
   "repository": {
     "type": "git",
-    "url": "https://github.com/GDX64/any-store.git"
+    "url": "https://github.com/GDX64/shared-heap.git"
   },
   "bugs": {
-    "url": "https://github.com/GDX64/any-store/issues"
+    "url": "https://github.com/GDX64/shared-heap/issues"
   },
-  "homepage": "https://github.com/GDX64/any-store#readme",
+  "homepage": "https://github.com/GDX64/shared-heap#readme",
   "private": false,
   "version": "0.7.0",
   "type": "module",
@@ -31,7 +31,7 @@
     "bench": "vitest bench",
     "test:browser": "vitest --config=vitest.browser.config.ts",
     "test-ci": "vitest --run & vitest --config=vitest.browser.config.ts --run --browser.headless & cargo test",
-    "wasm": "cargo wasm && wasm-bindgen --target web --out-dir ./pkg ../target/wasm32-unknown-unknown/release/any_store.wasm",
+    "wasm": "cargo wasm && wasm-bindgen --target web --out-dir ./js/pkg ./target/wasm32-unknown-unknown/release/shared_heap.wasm",
     "deploy": "npm run build && npm run test-ci && npm publish --access public"
   },
   "devDependencies": {
