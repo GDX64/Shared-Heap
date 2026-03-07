@@ -228,50 +228,21 @@ export class AnyStore {
 }
 
 type Target = {
-  objID: number;
-  store: AnyStore;
-  hashCache?: Map<string, number>;
-  arrayMethods?: any;
+  __objID: number;
+  __store: AnyStore;
+  push?: typeof arrayPush;
+  pop?: typeof arrayPop;
 };
-
-// Global hash cache for common property names
-const globalHashCache = new Map<string, number>();
-
-function getCachedHash(prop: string, cache?: Map<string, number>): number {
-  // Check local cache first
-  let hash = cache?.get(prop);
-  if (hash !== undefined) return hash;
-
-  // Check global cache
-  hash = globalHashCache.get(prop);
-  if (hash !== undefined) {
-    cache?.set(prop, hash);
-    return hash;
-  }
-
-  // Calculate and cache
-  hash = fastHash(prop);
-  globalHashCache.set(prop, hash);
-  cache?.set(prop, hash);
-  return hash;
-}
 
 const proxySchema: ProxyHandler<Target> = {
   get(target: Target, prop: string) {
     if (prop === "__id") {
-      return target.objID;
+      return target.__objID;
     }
-    return target.store.__getObjProperty(
-      target.objID,
-      getCachedHash(prop, target.hashCache),
-    );
+    return target.__store.__getObjProperty(target.__objID, fastHash(prop));
   },
   set(target: Target, prop: string, value: any) {
-    target.store.__setObjProperty(
-      target.objID,
-      getCachedHash(prop, target.hashCache),
-      value,
-    );
+    target.__store.__setObjProperty(target.__objID, fastHash(prop), value);
     return true;
   },
   has(_target: Target, p) {
@@ -283,34 +254,37 @@ const proxySchema: ProxyHandler<Target> = {
 };
 
 function createProxyForObject(objID: number, store: AnyStore): any {
-  return new Proxy({ objID, store, hashCache: new Map() }, proxySchema);
+  return new Proxy({ __objID: objID, __store: store }, proxySchema);
+}
+
+function arrayPush(this: Target, ...items: any[]): number {
+  let length = this.__store.__arrayGetLength(this.__objID);
+  for (let i = 0; i < items.length; i++) {
+    this.__store.__setObjProperty(this.__objID, length + i, items[i]);
+    length++;
+  }
+  this.__store.__arraySetLength(this.__objID, length);
+  return length;
+}
+
+function arrayPop(this: Target): any {
+  const length = this.__store.__arrayGetLength(this.__objID);
+  if (length === 0) {
+    return undefined;
+  }
+  const lastIndex = length - 1;
+  const value = this.__store.__getObjProperty(this.__objID, lastIndex);
+  this.__store.__arrayDeleteElement(this.__objID, lastIndex);
+  this.__store.__arraySetLength(this.__objID, lastIndex);
+  return value;
 }
 
 function createProxyForArray(objID: number, store: AnyStore): any {
-  const target: Target = { objID, store, hashCache: new Map() };
-
-  // Pre-bind array methods to avoid creating new functions on each access
-  target.arrayMethods = {
-    push: function (...items: any[]) {
-      let length = store.__arrayGetLength(objID);
-      for (let i = 0; i < items.length; i++) {
-        store.__setObjProperty(objID, length + i, items[i]);
-        length++;
-      }
-      store.__arraySetLength(objID, length);
-      return length;
-    },
-    pop: function () {
-      const length = store.__arrayGetLength(objID);
-      if (length === 0) {
-        return undefined;
-      }
-      const lastIndex = length - 1;
-      const value = store.__getObjProperty(objID, lastIndex);
-      store.__arrayDeleteElement(objID, lastIndex);
-      store.__arraySetLength(objID, lastIndex);
-      return value;
-    },
+  const target: Target = {
+    __objID: objID,
+    __store: store,
+    push: arrayPush,
+    pop: arrayPop,
   };
 
   return new Proxy(target, proxyArraySchema);
@@ -318,25 +292,26 @@ function createProxyForArray(objID: number, store: AnyStore): any {
 
 const proxyArraySchema: ProxyHandler<Target> = {
   get(target: Target, prop: string) {
-    if (prop === "__id") {
-      return target.objID;
-    }
-    if (prop === "length") {
-      return target.store.__arrayGetLength(target.objID);
-    }
-    if (prop === "push") {
-      return target.arrayMethods!.push;
-    }
-    if (prop === "pop") {
-      return target.arrayMethods!.pop;
+    switch (prop) {
+      case "__id":
+      case "__objID":
+        return target.__objID;
+      case "__store":
+        return target.__store;
+      case "length":
+        return target.__store.__arrayGetLength(target.__objID);
+      case "push":
+        return target.push;
+      case "pop":
+        return target.pop;
     }
     // Check if it's a numeric index
     const index = Number(prop);
-    return target.store.__getObjProperty(target.objID, index);
+    return target.__store.__getObjProperty(target.__objID, index);
   },
   set(target: Target, prop: string, value: any) {
     const index = Number(prop);
-    target.store.__setArrayElement(target.objID, index, value);
+    target.__store.__setArrayElement(target.__objID, index, value);
     return true;
   },
   has(_target: Target, p) {
@@ -344,7 +319,6 @@ const proxyArraySchema: ProxyHandler<Target> = {
   },
 };
 
-// Optimized hash function with fewer operations
 function fastHash(str: string): number {
   let hash = 0;
   const len = str.length;
