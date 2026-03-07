@@ -125,3 +125,132 @@ mod extern_functions_mod {
         panic!("Not implemented in wasm");
     }
 }
+#[cfg(not(target_arch = "wasm32"))]
+mod extern_functions_mod {
+    use crate::extern_functions::MockValue;
+    use std::cell::RefCell;
+
+    thread_local! {
+        static STACK: RefCell<Vec<MockValue>> = RefCell::new(Vec::new());
+        static STRING_BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+        static BLOB_BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+        static WORKER_ID: RefCell<i32> = RefCell::new(0);
+    }
+
+    pub fn is_main_thread() -> bool {
+        worker_id() == 0
+    }
+
+    pub fn worker_id() -> usize {
+        WORKER_ID.with(|id| *id.borrow() as usize)
+    }
+
+    pub fn safe_read_string(index: usize) -> u8 {
+        STRING_BUFFER.with(|buf| {
+            let buffer = buf.borrow();
+            if index < buffer.len() {
+                buffer[index]
+            } else {
+                0
+            }
+        })
+    }
+
+    pub fn safe_create_string() {
+        STRING_BUFFER.with(|buf| {
+            buf.borrow_mut().clear();
+        });
+    }
+
+    pub fn safe_push_to_string(byte: u8) {
+        STRING_BUFFER.with(|buf| {
+            buf.borrow_mut().push(byte);
+        });
+    }
+
+    pub fn safe_read_string_length() -> usize {
+        STRING_BUFFER.with(|buf| buf.borrow().len())
+    }
+
+    pub fn safe_put_i32(value: i32) {
+        STACK.with(|stack| {
+            stack.borrow_mut().push(MockValue::Int(value));
+        });
+    }
+
+    pub fn safe_put_f64(value: f64) {
+        STACK.with(|stack| {
+            stack.borrow_mut().push(MockValue::Float(value));
+        });
+    }
+
+    pub fn js_put_ref(value: u32) {
+        STACK.with(|stack| {
+            stack.borrow_mut().push(MockValue::Int(value as i32));
+        });
+    }
+
+    pub fn safe_js_pop_stack() {
+        STACK.with(|stack| {
+            stack.borrow_mut().pop();
+        });
+    }
+
+    pub fn safe_push_null() {
+        STACK.with(|stack| {
+            stack.borrow_mut().push(MockValue::Null);
+        });
+    }
+
+    pub fn safe_log_stack_value() {
+        STACK.with(|stack| {
+            let s = stack.borrow();
+            if let Some(value) = s.last() {
+                println!("{:?}", value);
+            }
+        });
+    }
+
+    pub fn log_string(message: &str) {
+        println!("{}", message);
+    }
+
+    pub fn safe_create_blob(ptr: usize, len: usize) {
+        BLOB_BUFFER.with(|buf| {
+            buf.borrow_mut().clear();
+        });
+        STACK.with(|stack| {
+            stack
+                .borrow_mut()
+                .push(MockValue::Blob(vec![ptr as u8; len]));
+        });
+    }
+
+    pub fn safe_read_blob_length() -> usize {
+        BLOB_BUFFER.with(|buf| buf.borrow().len())
+    }
+
+    pub fn safe_read_blob_byte(index: usize) -> u8 {
+        BLOB_BUFFER.with(|buf| {
+            let buffer = buf.borrow();
+            if index < buffer.len() {
+                buffer[index]
+            } else {
+                0
+            }
+        })
+    }
+
+    pub fn with_stack_mut<R>(f: impl FnOnce(&mut Vec<MockValue>) -> R) -> R {
+        STACK.with(|stack| {
+            let mut s = stack.borrow_mut();
+            f(&mut *s)
+        })
+    }
+
+    pub fn set_worker_id(id: i32) {
+        WORKER_ID.with(|worker_id| {
+            *worker_id.borrow_mut() = id;
+        });
+    }
+}

@@ -208,19 +208,19 @@ fn has_writer(state: i32) -> bool {
     return state < 0;
 }
 
-fn wait(lock_state: &AtomicI32) {
+fn wait(_lock_state: &AtomicI32) {
     if !extern_functions::is_main_thread() {
         #[cfg(target_arch = "wasm32")]
         unsafe {
-            let ptr = lock_state.as_ptr();
+            let ptr = _lock_state.as_ptr();
             std::arch::wasm32::memory_atomic_wait32(ptr, UNLOCKED, 1000_000);
         }
     }
 }
 
-fn notify(lock_state: &AtomicI32) {
+fn notify(_lock_state: &AtomicI32) {
     #[cfg(target_arch = "wasm32")]
     unsafe {
-        std::arch::wasm32::memory_atomic_notify(lock_state.as_ptr(), 999);
+        std::arch::wasm32::memory_atomic_notify(_lock_state.as_ptr(), 999);
     }
 }
