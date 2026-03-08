@@ -1,9 +1,9 @@
-import { AnyStore } from "../src/AnyStore";
+import { SharedHeap } from "../src/AnyStore";
 import { test, describe, expect } from "vitest";
 import Worker from "./worker?worker";
 
 describe("worker window", async () => {
-  const db = await AnyStore.create();
+  const db = await SharedHeap.create();
 
   test("worker", async () => {
     const counter = db.createObject({ value: 0 });
@@ -13,7 +13,7 @@ describe("worker window", async () => {
       const worker = new Worker();
       const workerData = db.createWorker();
       worker.postMessage({
-        counterID: AnyStore.getIDOfProxy(counter),
+        counterID: SharedHeap.getIDOfProxy(counter),
         workerData,
         N,
       });

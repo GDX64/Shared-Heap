@@ -12,7 +12,7 @@ type WorkerData = {
   workerID: number;
 };
 
-export class AnyStore {
+export class SharedHeap {
   private workerID: number = 0;
   private proxyMap: Map<bigint, WeakRef<any>> = new Map();
   private finalization: FinalizationRegistry<bigint>;
@@ -31,7 +31,7 @@ export class AnyStore {
     if (typeof obj === "bigint") {
       id = obj;
     } else {
-      id = AnyStore.getIDOfProxy(obj);
+      id = SharedHeap.getIDOfProxy(obj);
     }
     this.proxyMap.delete(id!);
     this.mod.drop_object(id!);
@@ -42,7 +42,7 @@ export class AnyStore {
     if (typeof obj === "bigint") {
       id = obj;
     } else {
-      id = AnyStore.getIDOfProxy(obj);
+      id = SharedHeap.getIDOfProxy(obj);
     }
     return this.mod.get_reference_count(id!);
   }
@@ -54,13 +54,13 @@ export class AnyStore {
       shared: true,
     });
     const mod = await initModule({ memory });
-    return new AnyStore(mod, memory);
+    return new SharedHeap(mod, memory);
   }
 
   static async fromModule(workerData: WorkerData) {
     startWorkerID(workerData.workerID);
     const mod = await initModule({ memory: workerData.memory });
-    return new AnyStore(mod, workerData.memory);
+    return new SharedHeap(mod, workerData.memory);
   }
 
   withLock<T>(fn: () => T): T {
@@ -160,13 +160,13 @@ export class AnyStore {
       return;
     }
     // Slow path for object types
-    if (AnyStore.isProxy(value)) {
-      const id = AnyStore.getIDOfProxy(value);
+    if (SharedHeap.isProxy(value)) {
+      const id = SharedHeap.getIDOfProxy(value);
       this.mod.something_push_ref_to_stack(id!);
       this.mod.set_object_property(objID, prop);
     } else if (valueType === "object") {
       const proxy = this.createObject(value);
-      const id = AnyStore.getIDOfProxy(proxy);
+      const id = SharedHeap.getIDOfProxy(proxy);
       this.mod.something_push_ref_to_stack(id!);
       this.mod.set_object_property(objID, prop);
     }
@@ -237,16 +237,16 @@ export class AnyStore {
   static somethingFromValue(value: unknown): Something | null {
     if (typeof value === "number") {
       if (Number.isInteger(value)) {
-        return AnyStore.i32(value);
+        return SharedHeap.i32(value);
       } else {
-        return AnyStore.f64(value);
+        return SharedHeap.f64(value);
       }
     } else if (typeof value === "string") {
-      return AnyStore.string(value);
+      return SharedHeap.string(value);
     } else if (value === null) {
-      return AnyStore.null();
+      return SharedHeap.null();
     } else if (value instanceof Uint8Array) {
-      return AnyStore.blob(value);
+      return SharedHeap.blob(value);
     }
     return null;
   }
@@ -254,7 +254,7 @@ export class AnyStore {
 
 type Target = {
   heapID: bigint;
-  __store: AnyStore;
+  __store: SharedHeap;
   push?: typeof arrayPush;
   pop?: typeof arrayPop;
 };
@@ -278,7 +278,7 @@ const proxySchema: ProxyHandler<Target> = {
   },
 };
 
-function createProxyForObject(objID: bigint, store: AnyStore): any {
+function createProxyForObject(objID: bigint, store: SharedHeap): any {
   return new Proxy({ heapID: objID, __store: store }, proxySchema);
 }
 
@@ -304,7 +304,7 @@ function arrayPop(this: Target): any {
   return value;
 }
 
-function createProxyForArray(objID: bigint, store: AnyStore): any {
+function createProxyForArray(objID: bigint, store: SharedHeap): any {
   const target: Target = {
     heapID: objID,
     __store: store,

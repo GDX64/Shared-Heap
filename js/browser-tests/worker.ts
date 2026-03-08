@@ -1,9 +1,9 @@
-import { AnyStore } from "../src/AnyStore";
+import { SharedHeap } from "../src/AnyStore";
 
 self.onmessage = async (event) => {
   const { N, workerData, counterID } = event.data;
 
-  const db = await AnyStore.fromModule(workerData);
+  const db = await SharedHeap.fromModule(workerData);
   const counter = db.getObject<{ value: number }>(counterID)!;
 
   for (let i = 0; i < N; i++) {

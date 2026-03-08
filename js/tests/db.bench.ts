@@ -1,11 +1,11 @@
 import { setupFetch } from "./setupFetch";
-import { AnyStore } from "../src/AnyStore";
+import { SharedHeap } from "../src/AnyStore";
 import { bench, describe } from "vitest";
 
 setupFetch();
 
 describe("benchmark", async () => {
-  const db = await AnyStore.create();
+  const db = await SharedHeap.create();
   const N = 10_000;
 
   // Simple counter benchmark

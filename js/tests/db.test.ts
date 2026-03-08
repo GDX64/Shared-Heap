@@ -1,4 +1,4 @@
-import { AnyStore } from "../src/AnyStore";
+import { SharedHeap } from "../src/AnyStore";
 import { describe, expect, test } from "vitest";
 import { setupFetch } from "./setupFetch";
 
@@ -6,7 +6,7 @@ setupFetch();
 
 describe("hello", () => {
   test("world", async () => {
-    const db = await AnyStore.create();
+    const db = await SharedHeap.create();
     const obj = db.createObject({
       foo: 10,
       bar: 10.1,
@@ -20,7 +20,7 @@ describe("hello", () => {
     expect(obj.qux).toEqual(new Uint8Array([1, 2, 3]));
   });
   test("recursive", async () => {
-    const db = await AnyStore.create();
+    const db = await SharedHeap.create();
     const fist = db.createObject({ name: "fist" });
 
     const obj = db.createObject({
@@ -39,7 +39,7 @@ describe("hello", () => {
   });
 
   test("arrays", async () => {
-    const db = await AnyStore.create();
+    const db = await SharedHeap.create();
     const obj = db.createObject({ arr: [1] });
 
     expect(obj.arr[0]).toBe(1);
@@ -55,7 +55,7 @@ describe("hello", () => {
   });
 
   test("array object", async () => {
-    const db = await AnyStore.create();
+    const db = await SharedHeap.create();
     const obj = db.createObject({ arr: [{ name: "hello", age: 30 }] });
 
     expect(obj.arr[0].name).toBe("hello");
@@ -70,7 +70,7 @@ describe("hello", () => {
   });
 
   test("force drop", async () => {
-    const db = await AnyStore.create();
+    const db = await SharedHeap.create();
     const obj = db.createObject({ name: "test" });
     expect(obj.name).toBe("test");
     db.drop(obj);
@@ -78,7 +78,7 @@ describe("hello", () => {
   });
 
   test("nested drop", async () => {
-    const db = await AnyStore.create();
+    const db = await SharedHeap.create();
     const obj = db.createObject({
       child: { name: "child" },
       child2: { name: "child2" } as { name: string } | null,
@@ -109,7 +109,7 @@ describe("hello", () => {
   });
 
   test("dynamic drop", async () => {
-    const db = await AnyStore.create();
+    const db = await SharedHeap.create();
     const obj = db.createObject({} as { child?: { name: string } });
     expect(obj.child).toBeNullable();
 
@@ -125,7 +125,7 @@ describe("hello", () => {
     //we can access obj.child multiple times, but the reference count should still be 2
     expect(db.getReferenceCount(obj.child)).toBe(2);
 
-    const childID = AnyStore.getIDOfProxy(obj.child);
+    const childID = SharedHeap.getIDOfProxy(obj.child);
     db.drop(obj.child);
     //now we dropped the proxy for child, there should still be 1 ref to child in obj
     expect(db.getReferenceCount(childID)).toBe(1);
@@ -140,7 +140,7 @@ describe("hello", () => {
   });
 
   test("discover type", async () => {
-    const db = await AnyStore.create();
+    const db = await SharedHeap.create();
     //we will simulate receiving the value from another thread
     const obj = db.createObject({
       nested: { name: "nested" },
@@ -149,7 +149,7 @@ describe("hello", () => {
 
     const objID = obj.heapID;
 
-    const anotherDB = await AnyStore.fromModule(db.createWorker());
+    const anotherDB = await SharedHeap.fromModule(db.createWorker());
 
     const nested = anotherDB.getObject<typeof obj>(objID);
 
