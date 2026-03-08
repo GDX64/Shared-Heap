@@ -9,8 +9,7 @@ const UNLOCKED: i32 = -1;
 
 #[inline]
 fn thread_id_i32() -> i32 {
-    let id = extern_functions::worker_id();
-    i32::try_from(id).expect("worker_id does not fit in i32")
+    return extern_functions::worker_id() as i32;
 }
 
 fn wait(_lock_state: &AtomicI32, _expected: i32) {
@@ -31,18 +30,13 @@ fn notify(lock_state: &AtomicI32) {
     unsafe {
         std::arch::wasm32::memory_atomic_notify(lock_state.as_ptr(), 1);
     }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = lock_state; // no-op on non-wasm
-    }
 }
 
 /// Re-entrant mutex with explicit lock/unlock.
 /// `state` = owner thread id, or `UNLOCKED` when free.
 pub struct WasmMutex<T> {
     state: AtomicI32,
-    recursion: AtomicI32,
+    recursion: UnsafeCell<i32>,
     data: UnsafeCell<T>,
 }
 
@@ -57,9 +51,17 @@ impl<T> WasmMutex<T> {
     pub const fn new(value: T) -> Self {
         Self {
             state: AtomicI32::new(UNLOCKED),
-            recursion: AtomicI32::new(0),
+            recursion: UnsafeCell::new(0),
             data: UnsafeCell::new(value),
         }
+    }
+
+    unsafe fn set_recursion(&self, i: i32) {
+        unsafe { *self.recursion.get() = i };
+    }
+
+    unsafe fn get_recursion(&self) -> i32 {
+        unsafe { *self.recursion.get() }
     }
 
     #[inline]
@@ -71,12 +73,18 @@ impl<T> WasmMutex<T> {
             .compare_exchange(UNLOCKED, tid, Ordering::Acquire, Ordering::Relaxed)
             .is_ok()
         {
-            self.recursion.store(1, Ordering::Relaxed);
+            unsafe {
+                // Safety: we just acquired the lock, so we can set recursion to 1.
+                self.set_recursion(1);
+            }
             return true;
         }
 
         if self.state.load(Ordering::Relaxed) == tid {
-            self.recursion.fetch_add(1, Ordering::Relaxed);
+            unsafe {
+                // Safety: we already own the lock, so we can increment recursion.
+                self.set_recursion(self.get_recursion() + 1);
+            }
             return true;
         }
 
@@ -84,13 +92,11 @@ impl<T> WasmMutex<T> {
     }
 
     pub fn lock(&self) {
-        let tid = thread_id_i32();
-
         loop {
             if self.try_lock() {
                 return;
             }
-
+            let tid = thread_id_i32();
             loop {
                 let owner = self.state.load(Ordering::Relaxed);
                 if owner == UNLOCKED || owner == tid {
@@ -102,19 +108,13 @@ impl<T> WasmMutex<T> {
     }
 
     pub fn unlock(&self) {
-        let tid = thread_id_i32();
-        let owner = self.state.load(Ordering::Relaxed);
-
-        debug_assert_eq!(owner, tid, "unlock() called by non-owner thread");
-        if owner != tid {
-            return;
-        }
-
-        let prev = self.recursion.fetch_sub(1, Ordering::Relaxed);
-        debug_assert!(prev > 0, "unlock() called on unlocked mutex");
-        if prev <= 1 {
-            self.state.store(UNLOCKED, Ordering::Release);
-            notify(&self.state);
+        unsafe {
+            let prev = self.get_recursion();
+            self.set_recursion(prev - 1);
+            if prev <= 1 {
+                self.state.store(UNLOCKED, Ordering::Release);
+                notify(&self.state);
+            }
         }
     }
 
