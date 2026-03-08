@@ -1,3 +1,5 @@
+import { fastHash } from "./hash";
+
 type SchemaValues = "f64" | "i32";
 
 type Schema = Record<string, SchemaValues>;
@@ -19,6 +21,8 @@ export class BinView {
         super(data);
       }
     };
+
+    const schemaKey = fastHash(JSON.stringify(schema));
 
     let index = 0;
     for (const key in schema) {
@@ -66,6 +70,7 @@ export class BinView {
         return {
           type: "binview",
           constructor: b,
+          schemaKey,
         };
       },
     });

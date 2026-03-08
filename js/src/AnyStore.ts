@@ -1,4 +1,5 @@
 import initModule, { type InitOutput } from "../pkg/shared_heap";
+import { fastHash } from "./hash";
 import {
   popObjectFromStack,
   pushBlobToStack,
@@ -15,7 +16,7 @@ type WorkerData = {
 export class SharedHeap {
   private workerID: number = 0;
   private proxyMap: Map<bigint, WeakRef<any>> = new Map();
-  private binViewConstructors: Map<string, BinViewConstructor> = new Map();
+  private binViewConstructors: Map<bigint, BinViewConstructor> = new Map();
   private finalization: FinalizationRegistry<bigint>;
 
   constructor(
@@ -104,6 +105,14 @@ export class SharedHeap {
     let obj;
     if (isArrayID(id)) {
       obj = createProxyForArray(id, this);
+    } else if (isBinView(id)) {
+      const schemaKey = this.mod.get_bin_view_schema(id);
+      const getViewPtr = this.mod.get_bin_view_ptr(id);
+      const ctor = this.binViewConstructors.get(schemaKey);
+      if (!ctor) {
+        throw new Error("No constructor found for bin view with schema key");
+      }
+      return new ctor(new DataView(this.memory.buffer, Number(getViewPtr)));
     } else {
       obj = createProxyForObject(id, this);
     }
@@ -126,16 +135,12 @@ export class SharedHeap {
 
   private getObjProperty(objID: bigint, prop: bigint): Something["value"] {
     this.mod.get_object_property(objID, prop);
-    return this.decodePoppedValue(objID, prop);
+    return this.decodePoppedValue();
   }
 
   private setObjProperty(objID: bigint, prop: bigint, value: unknown): void {
-    this.pushObjectValueToSomethingStack(objID, prop, value);
+    this.pushSomething(value);
     this.mod.set_object_property(objID, prop);
-  }
-
-  private createBinViewKey(objID: bigint, prop: bigint): string {
-    return `${objID}:${prop}`;
   }
 
   private arrayGetLength(objID: bigint): number {
@@ -148,32 +153,24 @@ export class SharedHeap {
 
   private setArrayElement(objID: bigint, index: number, value: unknown): void {
     if (isBinViewDefinition(value)) {
-      const key = this.createBinViewKey(objID, BigInt(index));
-      this.binViewConstructors.set(key, value.constructor);
+      this.binViewConstructors.set(value.schemaKey, value.constructor);
     }
-    this.pushArrayValueToSomethingStack(value);
+    this.pushSomething(value);
     this.mod.array_set_index(objID, index);
-    // Only update length if setting beyond current length
-    // This check is cheaper than always calling __arrayGetLength
-    const currentLength = this.arrayGetLength(objID);
-    if (index >= currentLength) {
-      this.arraySetLength(objID, index + 1);
-    }
   }
 
   private arrayGet(objID: bigint, index: number): Something["value"] {
     this.mod.array_get_index(objID, index);
-    return this.decodePoppedValue(objID, BigInt(index));
+    return this.decodePoppedValue();
   }
 
   private arrayPush(objID: bigint, ...items: unknown[]): number {
     let length = this.arrayGetLength(objID);
     for (const item of items) {
       if (isBinViewDefinition(item)) {
-        const key = this.createBinViewKey(objID, BigInt(length));
-        this.binViewConstructors.set(key, item.constructor);
+        this.binViewConstructors.set(item.schemaKey, item.constructor);
       }
-      this.pushArrayValueToSomethingStack(item);
+      this.pushSomething(item);
       this.mod.array_set_index(objID, length);
       length += 1;
     }
@@ -192,7 +189,7 @@ export class SharedHeap {
     return value;
   }
 
-  private decodePoppedValue(objID: bigint, prop: bigint): Something["value"] {
+  private decodePoppedValue(): Something["value"] {
     const result = popObjectFromStack();
     if (result == null) {
       return null;
@@ -203,13 +200,6 @@ export class SharedHeap {
       } else if (result.type === "blobPointer") {
         const { len, ptr } = result;
         const blob = new Uint8Array(this.memory.buffer, ptr, len);
-        const key = this.createBinViewKey(objID, prop);
-        const constructor = this.binViewConstructors.get(key);
-        if (constructor) {
-          return new constructor(
-            new DataView(blob.buffer, blob.byteOffset, blob.byteLength),
-          );
-        }
         return blob;
       }
       return result.value;
@@ -217,20 +207,7 @@ export class SharedHeap {
     return result;
   }
 
-  private pushObjectValueToSomethingStack(
-    objID: bigint,
-    prop: bigint,
-    value: unknown,
-  ): void {
-    if (isBinViewDefinition(value)) {
-      const ctor = value.constructor;
-      const key = this.createBinViewKey(objID, prop);
-      this.binViewConstructors.set(key, ctor);
-    }
-    this.pushArrayValueToSomethingStack(value);
-  }
-
-  private pushArrayValueToSomethingStack(value: unknown): void {
+  private pushSomething(value: unknown): void {
     if (isBinViewDefinition(value)) {
       const ctor = value.constructor;
       const blob = new Uint8Array(ctor.size());
@@ -410,24 +387,12 @@ const proxyArraySchema: ProxyHandler<Target> = {
   },
 };
 
-export function fastHash(str: string): bigint {
-  // FNV-1a parameters for 64-bit
-  const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
-  const FNV_PRIME = 0x100000001b3n;
-  const MASK_64 = 0xffffffffffffffffn;
-
-  let hash = FNV_OFFSET_BASIS;
-
-  for (let i = 0; i < str.length; i++) {
-    hash ^= BigInt(str.charCodeAt(i));
-    hash = (hash * FNV_PRIME) & MASK_64;
-  }
-
-  return hash;
-}
-
 function isArrayID(objID: bigint): boolean {
   return (objID & 0b1n) !== 0n;
+}
+
+function isBinView(objID: bigint): boolean {
+  return (objID & 0b11n) === 0b10n;
 }
 
 type BinViewConstructor = {
@@ -438,6 +403,7 @@ type BinViewConstructor = {
 type BinViewDefinition = {
   type: "binview";
   constructor: BinViewConstructor;
+  schemaKey: bigint;
 };
 
 function isBinViewDefinition(value: unknown): value is BinViewDefinition {
