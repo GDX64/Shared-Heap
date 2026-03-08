@@ -31,67 +31,13 @@ console.log(obj.baz); // "hello"
 console.log(obj.qux); // Uint8Array([1, 2, 3])
 ```
 
-### Nested Objects
+## Supported Types
+Shared Heap supports the following types:
+- Primitives: `number`, `string`, `boolean`, `null`
+- Typed arrays: `Uint8Array`
+- Nested objects and arrays (with supported types)
+- References to other shared objects
 
-```typescript
-const db = await SharedHeap.create();
-const fist = db.createObject({ name: "fist" });
-
-const obj = db.createObject({
-  fist,
-  foo: {
-    bar: 10,
-    baz: {
-      qux: "world",
-    },
-  },
-});
-
-console.log(obj.foo.bar); // 10
-console.log(obj.foo.baz.qux); // "world"
-console.log(obj.fist.name); // "fist"
-```
-
-### Working with Arrays
-
-```typescript
-const db = await SharedHeap.create();
-const obj = db.createObject({ arr: [1] });
-
-console.log(obj.arr[0]); // 1
-console.log(obj.arr.length); // 1
-
-// Push and pop work as expected
-obj.arr.push(2);
-console.log(obj.arr[1]); // 2
-console.log(obj.arr.length); // 2
-
-obj.arr.pop();
-console.log(obj.arr.length); // 1
-```
-
-## Memory Management
-
-### Automatic Reference Counting
-
-Shared Heap uses automatic reference counting to manage memory:
-
-```typescript
-const db = await SharedHeap.create();
-const obj = db.createObject({
-  child: { name: "child" },
-  child2: { name: "child2" },
-});
-
-console.log(db.getReferenceCount(obj)); // 1
-
-const child = obj.child;
-const child2 = obj.child2;
-
-// Two references: one in obj, one in the child variable
-console.log(db.getReferenceCount(child)); // 2
-console.log(db.getReferenceCount(child2)); // 2
-```
 
 ## Cross-Thread Sharing
 
@@ -173,6 +119,31 @@ db.withLock(() => {
   counter.value = current * 2 + 1;
 });
 ```
+
+## Memory Management
+
+### Automatic Reference Counting
+
+Shared Heap uses automatic reference counting to manage memory:
+
+```typescript
+const db = await SharedHeap.create();
+const obj = db.createObject({
+  child: { name: "child" },
+  child2: { name: "child2" },
+});
+
+console.log(db.getReferenceCount(obj)); // 1
+
+const child = obj.child;
+const child2 = obj.child2;
+
+// Two references: one in obj, one in the child variable
+console.log(db.getReferenceCount(child)); // 2
+console.log(db.getReferenceCount(child2)); // 2
+```
+
+
 
 ## Features
 
