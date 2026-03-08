@@ -1,5 +1,5 @@
-import init from "../pkg/any_store";
+import init from "../pkg/shared_heap";
 
 init().then((mod) => {
-  console.log("any-store initialized", mod);
+  console.log("shared-heap initialized", mod);
 });

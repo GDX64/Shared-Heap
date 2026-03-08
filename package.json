@@ -9,7 +9,7 @@
   },
   "homepage": "https://github.com/GDX64/shared-heap#readme",
   "private": false,
-  "version": "0.7.0",
+  "version": "0.1.0",
   "type": "module",
   "files": [
     "dist"
