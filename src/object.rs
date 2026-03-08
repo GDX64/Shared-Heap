@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use crate::value::Something;
 
@@ -7,9 +7,12 @@ pub struct Object {
     inner: Arc<Mutex<ObjectInner>>,
 }
 
+pub struct WeakObject {
+    inner: Weak<Mutex<ObjectInner>>,
+}
+
 struct ObjectInner {
     properties: HashMap<u64, Something>,
-    references: u32,
 }
 
 impl Object {
@@ -17,7 +20,6 @@ impl Object {
         Object {
             inner: Arc::new(Mutex::new(ObjectInner {
                 properties: HashMap::new(),
-                references: 1,
             })),
         }
     }
@@ -26,26 +28,14 @@ impl Object {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    pub fn increment_references(&self) {
-        let mut inner = self.lock_inner();
-        inner.references += 1;
+    pub fn strong_count(&self) -> usize {
+        return Arc::strong_count(&self.inner);
     }
 
-    pub fn decrement_references(&self) {
-        let mut inner = self.lock_inner();
-        if inner.references > 0 {
-            inner.references -= 1;
+    pub fn downgrade(&self) -> WeakObject {
+        WeakObject {
+            inner: Arc::downgrade(&self.inner),
         }
-    }
-
-    pub fn has_references(&self) -> bool {
-        let inner = self.lock_inner();
-        return inner.references > 0;
-    }
-
-    pub fn get_reference_count(&self) -> u32 {
-        let inner = self.lock_inner();
-        return inner.references;
     }
 
     pub fn set_property(&self, key: u64, value: Something) -> Option<Something> {
@@ -69,10 +59,29 @@ impl Object {
     }
 }
 
+impl WeakObject {
+    pub fn upgrade(&self) -> Option<Object> {
+        let inner = self.inner.upgrade()?;
+        Some(Object { inner })
+    }
+
+    pub fn strong_count(&self) -> usize {
+        self.inner.strong_count()
+    }
+}
+
 impl Clone for Object {
     fn clone(&self) -> Self {
         Object {
             inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
+impl Clone for WeakObject {
+    fn clone(&self) -> Self {
+        WeakObject {
+            inner: Weak::clone(&self.inner),
         }
     }
 }

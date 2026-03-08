@@ -1,5 +1,4 @@
-use std::hash::Hash;
-
+use crate::object::Object;
 const INT_TAG: u8 = 0;
 const VALUE_STRING_TAG: u8 = 1;
 const NULL_TAG: u8 = 2;
@@ -8,13 +7,13 @@ pub const ROW_TAG: u8 = 4;
 pub const TABLE_TAG: u8 = 5;
 pub const BLOB_TAG: u8 = 6;
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Clone)]
 pub enum Something {
     Int(i32),
     Float(f64),
     String(Vec<u8>),
     Blob(u64),
-    Ref(u64),
+    Ref { id: u64, object: Object },
     Null,
 }
 
@@ -33,7 +32,7 @@ impl Something {
             Null => NULL_TAG,
             Float(_) => FLOAT_TAG,
             Blob(_) => BLOB_TAG,
-            Ref(_) => ROW_TAG,
+            Ref { .. } => ROW_TAG,
         }
     }
 
@@ -42,30 +41,29 @@ impl Something {
     }
 }
 
-impl Hash for Something {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        use Something::*;
-        state.write_u8(self.tag());
+impl std::fmt::Debug for Something {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Int(v) => {
-                v.hash(state);
-            }
-            String(v) => {
-                v.hash(state);
-            }
-            Float(v) => {
-                let bits = v.to_le_bytes();
-                bits.hash(state);
-            }
-            Blob(v) => {
-                v.hash(state);
-            }
-            Null => {}
-            Ref(v) => {
-                v.hash(state);
-            }
+            Something::Int(v) => f.debug_tuple("Int").field(v).finish(),
+            Something::Float(v) => f.debug_tuple("Float").field(v).finish(),
+            Something::String(v) => f.debug_tuple("String").field(v).finish(),
+            Something::Blob(v) => f.debug_tuple("Blob").field(v).finish(),
+            Something::Ref { id, .. } => f.debug_struct("Ref").field("id", id).finish(),
+            Something::Null => f.write_str("Null"),
         }
     }
 }
 
-impl Eq for Something {}
+impl PartialEq for Something {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Something::Int(a), Something::Int(b)) => a == b,
+            (Something::Float(a), Something::Float(b)) => a == b,
+            (Something::String(a), Something::String(b)) => a == b,
+            (Something::Blob(a), Something::Blob(b)) => a == b,
+            (Something::Ref { id: a, .. }, Something::Ref { id: b, .. }) => a == b,
+            (Something::Null, Something::Null) => true,
+            _ => false,
+        }
+    }
+}

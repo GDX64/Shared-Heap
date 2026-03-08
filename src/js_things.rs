@@ -209,8 +209,10 @@ pub fn something_push_string() {
 
 #[wasm_bindgen]
 pub fn something_push_ref_to_stack(value: u64) {
-    let something = Something::Ref(value);
-    push_something(something);
+    let storage = GLOBALS.read();
+    if let Some(something) = storage.create_reference(value) {
+        push_something(something);
+    }
 }
 
 #[wasm_bindgen]
@@ -256,8 +258,8 @@ fn push_to_js_stack(value: &Something, db: &Storage) {
                 safe_create_blob(blob_ptr as usize, len);
             }
         }
-        Something::Ref(r) => {
-            js_put_ref(*r);
+        Something::Ref { id, object: _ } => {
+            js_put_ref(*id);
         }
         Something::Null => {
             safe_push_null();

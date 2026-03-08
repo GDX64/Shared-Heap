@@ -1,7 +1,26 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 
-use crate::object::Object;
+use crate::object::{Object, WeakObject};
 use crate::value::Something;
+
+thread_local! {
+    static LOCAL_OBJECTS: RefCell<HashMap<u64, Object>> = RefCell::new(HashMap::new());
+}
+
+fn local_get(id: u64) -> Option<Object> {
+    LOCAL_OBJECTS.with(|objects| objects.borrow().get(&id).cloned())
+}
+
+fn local_insert(id: u64, object: Object) {
+    LOCAL_OBJECTS.with(|objects| {
+        objects.borrow_mut().insert(id, object);
+    });
+}
+
+fn local_remove(id: u64) -> Option<Object> {
+    LOCAL_OBJECTS.with(|objects| objects.borrow_mut().remove(&id))
+}
 
 pub enum ObjectKind {
     Object = 0,
@@ -9,7 +28,7 @@ pub enum ObjectKind {
 }
 
 pub struct Storage {
-    pub collection: HashMap<u64, Object>,
+    pub collection: HashMap<u64, WeakObject>,
     pub blobs: HashMap<u64, Vec<u8>>,
     last_id: u64,
 }
@@ -24,23 +43,40 @@ impl Storage {
     }
 
     pub fn try_drop(&mut self, id: u64) -> Option<()> {
-        let obj = self.collection.get(&id)?.clone();
-        obj.decrement_references();
-        if !obj.has_references() {
-            let obj = self.collection.remove(&id)?;
-            obj.take_properties().into_iter().for_each(|(_, s)| {
-                if let Something::Ref(to) = s {
-                    self.try_drop(to);
-                }
-            });
-        };
+        if local_remove(id).is_none() && !self.collection.contains_key(&id) {
+            return None;
+        }
+
+        self.cleanup_dead(id);
 
         return Some(());
     }
 
+    fn cleanup_dead(&mut self, id: u64) {
+        let remove = self
+            .collection
+            .get(&id)
+            .map(|w| w.strong_count() == 0)
+            .unwrap_or(false);
+        if remove {
+            self.collection.remove(&id);
+        }
+    }
+
+    fn get_live_object(&self, id: u64) -> Option<Object> {
+        if let Some(object) = local_get(id) {
+            return Some(object);
+        }
+
+        let weak = self.collection.get(&id)?;
+        let object = weak.upgrade()?;
+        local_insert(id, object.clone());
+        Some(object)
+    }
+
     pub fn get_reference_count(&self, id: u64) -> Option<u32> {
         let obj = self.collection.get(&id)?;
-        return Some(obj.get_reference_count());
+        return Some(obj.strong_count() as u32);
     }
 
     pub fn get_blob_pointer(&self, id: u64) -> Option<(*const u8, usize)> {
@@ -56,8 +92,13 @@ impl Storage {
     }
 
     pub fn increment_object_references(&mut self, id: u64) -> Option<bool> {
-        let obj = self.collection.get(&id)?;
-        obj.increment_references();
+        if local_get(id).is_some() {
+            return Some(true);
+        }
+
+        let weak = self.collection.get(&id)?;
+        let object = weak.upgrade()?;
+        local_insert(id, object);
         return Some(true);
     }
 
@@ -66,42 +107,43 @@ impl Storage {
             ObjectKind::Object => self.object_id(),
             ObjectKind::Array => self.array_id(),
         };
-        self.collection.insert(id, Object::new());
+        let object = Object::new();
+        self.collection.insert(id, object.downgrade());
+        local_insert(id, object);
         return id;
     }
 
-    pub fn get_object(&self, id: u64) -> Option<&Object> {
-        return self.collection.get(&id);
+    pub fn get_object(&self, id: u64) -> Option<Object> {
+        return self.get_live_object(id);
     }
 
     pub fn set_object_property(&mut self, object_id: u64, key: u64, value: Something) {
-        if let Something::Ref(to) = value {
-            if let Some(obj) = self.collection.get_mut(&to) {
-                obj.increment_references();
-            }
-        }
-        if let Some(object) = self.collection.get_mut(&object_id) {
-            if let Some(Something::Ref(id)) = object.set_property(key, value) {
-                self.try_drop(id);
+        if let Some(object) = self.get_live_object(object_id) {
+            if let Some(Something::Ref { id, .. }) = object.set_property(key, value) {
+                self.cleanup_dead(id);
             }
         }
     }
 
     pub fn get_object_property(&self, object_id: u64, key: u64) -> Option<Something> {
-        if let Some(object) = self.collection.get(&object_id) {
+        if let Some(object) = self.get_live_object(object_id) {
             return object.get_property(key);
         }
         return None;
     }
 
     pub fn delete_object_property(&mut self, object_id: u64, key: u64) -> Option<Something> {
-        let object = self.collection.get(&object_id)?;
+        let object = self.get_live_object(object_id)?;
         let prop = object.delete_property(key)?;
-        if let Something::Ref(to) = &prop {
-            let obj = self.collection.get(to)?;
-            obj.decrement_references();
+        if let Something::Ref { id: to, .. } = &prop {
+            self.cleanup_dead(*to);
         };
         return Some(prop);
+    }
+
+    pub fn create_reference(&self, id: u64) -> Option<Something> {
+        let object = self.get_live_object(id)?;
+        return Some(Something::Ref { id, object });
     }
 
     fn object_id(&mut self) -> u64 {

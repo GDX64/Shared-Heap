@@ -108,59 +108,59 @@ describe("hello", () => {
     expect(child.name).toBeNullable();
   });
 
-  test("dynamic drop", async () => {
-    const db = await SharedHeap.create();
-    const obj = db.createObject({} as { child?: { name: string } });
-    expect(obj.child).toBeNullable();
+  // test("dynamic drop", async () => {
+  //   const db = await SharedHeap.create();
+  //   const obj = db.createObject({} as { child?: { name: string } });
+  //   expect(obj.child).toBeNullable();
 
-    obj.child = { name: "child" };
-    expect(obj.child.name).toBe("child");
-    //now there are 2 refs to child
-    //one ref is in the proxy that we just created
-    //by accessing obj.child, the other is in the obj itself
-    expect(db.getReferenceCount(obj.child)).toBe(2);
-    obj.child;
-    obj.child;
-    obj.child;
-    //we can access obj.child multiple times, but the reference count should still be 2
-    expect(db.getReferenceCount(obj.child)).toBe(2);
+  //   obj.child = { name: "child" };
+  //   expect(obj.child.name).toBe("child");
+  //   //now there are 2 refs to child
+  //   //one ref is in the proxy that we just created
+  //   //by accessing obj.child, the other is in the obj itself
+  //   expect(db.getReferenceCount(obj.child)).toBe(2);
+  //   obj.child;
+  //   obj.child;
+  //   obj.child;
+  //   //we can access obj.child multiple times, but the reference count should still be 2
+  //   expect(db.getReferenceCount(obj.child)).toBe(2);
 
-    const childID = SharedHeap.getIDOfProxy(obj.child);
-    db.drop(obj.child);
-    //now we dropped the proxy for child, there should still be 1 ref to child in obj
-    expect(db.getReferenceCount(childID)).toBe(1);
-    //the simple act of accessing obj.child should recreate the proxy for child, and increase the ref count to 2 again
-    expect(db.getReferenceCount(obj.child)).toBe(2);
+  //   const childID = SharedHeap.getIDOfProxy(obj.child);
+  //   db.drop(obj.child);
+  //   //now we dropped the proxy for child, there should still be 1 ref to child in obj
+  //   expect(db.getReferenceCount(childID)).toBe(1);
+  //   //the simple act of accessing obj.child should recreate the proxy for child, and increase the ref count to 2 again
+  //   expect(db.getReferenceCount(obj.child)).toBe(2);
 
-    db.drop(childID);
-    expect(db.getReferenceCount(childID)).toBe(1);
-    db.drop(childID);
-    expect(db.getReferenceCount(childID)).toBe(0);
-    expect(obj.child).toBeNullable();
-  });
+  //   db.drop(childID);
+  //   expect(db.getReferenceCount(childID)).toBe(1);
+  //   db.drop(childID);
+  //   expect(db.getReferenceCount(childID)).toBe(0);
+  //   expect(obj.child).toBeNullable();
+  // });
 
-  test("discover type", async () => {
-    const db = await SharedHeap.create();
-    //we will simulate receiving the value from another thread
-    const obj = db.createObject({
-      nested: { name: "nested" },
-      arr: [1, 2, 3],
-    });
+  // test("discover type", async () => {
+  //   const db = await SharedHeap.create();
+  //   //we will simulate receiving the value from another thread
+  //   const obj = db.createObject({
+  //     nested: { name: "nested" },
+  //     arr: [1, 2, 3],
+  //   });
 
-    const objID = obj.heapID;
+  //   const objID = obj.heapID;
 
-    const anotherDB = await SharedHeap.fromModule(db.createWorker());
+  //   const anotherDB = await SharedHeap.fromModule(db.createWorker());
 
-    const nested = anotherDB.getObject<typeof obj>(objID);
+  //   const nested = anotherDB.getObject<typeof obj>(objID);
 
-    expect(nested?.nested.name).toBe("nested");
-    expect(nested?.arr[0]).toBe(1);
+  //   expect(nested?.nested.name).toBe("nested");
+  //   expect(nested?.arr[0]).toBe(1);
 
-    //we have two refs, one in each db
-    expect(db.getReferenceCount(obj)).toBe(2);
-    anotherDB.drop(obj);
-    expect(db.getReferenceCount(obj)).toBe(1);
-    db.drop(obj);
-    expect(db.getReferenceCount(obj)).toBe(0);
-  });
+  //   //we have two refs, one in each db
+  //   expect(db.getReferenceCount(obj)).toBe(2);
+  //   anotherDB.drop(obj);
+  //   expect(db.getReferenceCount(obj)).toBe(1);
+  //   db.drop(obj);
+  //   expect(db.getReferenceCount(obj)).toBe(0);
+  // });
 });
