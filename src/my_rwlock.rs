@@ -110,7 +110,7 @@ impl ThreadLock {
         }
     }
 
-    fn lock_read(&self) {
+    pub(crate) fn lock_read(&self) {
         if has_global_lock() {
             return;
         }
@@ -129,7 +129,7 @@ impl ThreadLock {
         }
     }
 
-    fn lock_write(&self) {
+    pub(crate) fn lock_write(&self) {
         if has_global_lock() {
             return;
         }
@@ -148,7 +148,7 @@ impl ThreadLock {
         }
     }
 
-    fn release_read(&self) {
+    pub(crate) fn release_read(&self) {
         if has_global_lock() {
             return;
         }
@@ -156,7 +156,7 @@ impl ThreadLock {
         notify(&self.lock_state);
     }
 
-    fn release_write(&self) {
+    pub(crate) fn release_write(&self) {
         if has_global_lock() {
             return;
         }

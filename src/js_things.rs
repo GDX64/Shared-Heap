@@ -2,7 +2,6 @@ use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
     extern_functions::*,
-    my_rwlock::{MyRwLock, ReadGuard, WriteGuard},
     storage::{ObjectKind, Storage},
     value::Something,
 };
@@ -44,43 +43,7 @@ fn pop_from_something_stack() -> Option<Something> {
     return pop_something();
 }
 
-struct GlobalState {
-    db: MyRwLock<Storage>,
-}
-
-impl GlobalState {
-    fn new() -> Self {
-        GlobalState {
-            db: MyRwLock::new(Storage::new()),
-        }
-    }
-
-    fn lock(&self) {
-        self.db.lock.global_lock_write();
-    }
-
-    fn unlock(&self) {
-        self.db.lock.release_global_write();
-    }
-
-    fn try_lock(&self) -> bool {
-        return self.db.lock.try_global_lock_write();
-    }
-
-    fn lock_pointer(&self) -> *const i32 {
-        return self.db.lock.pointer();
-    }
-
-    fn write(&self) -> WriteGuard<'_, Storage> {
-        return self.db.write();
-    }
-
-    fn read(&self) -> ReadGuard<'_, Storage> {
-        return self.db.read();
-    }
-}
-
-static GLOBALS: LazyLock<GlobalState> = LazyLock::new(|| GlobalState::new());
+static GLOBALS: LazyLock<Storage> = LazyLock::new(Storage::new);
 
 #[wasm_bindgen]
 pub fn lock() {
@@ -104,51 +67,44 @@ pub fn lock_pointer() -> *const i32 {
 
 #[wasm_bindgen]
 pub fn get_object_property(object_id: u64, key: u64) {
-    let storage = GLOBALS.read();
-    if let Some(obj) = storage.get_object_property(object_id, key) {
-        push_to_js_stack(&obj, &storage);
+    if let Some(obj) = GLOBALS.get_object_property(object_id, key) {
+        push_to_js_stack(&obj, &GLOBALS);
     }
 }
 
 #[wasm_bindgen]
 pub fn increment_object_references(object_id: u64) -> bool {
-    let mut storage = GLOBALS.write();
-    return storage
+    return GLOBALS
         .increment_object_references(object_id)
         .unwrap_or(false);
 }
 
 #[wasm_bindgen]
 pub fn drop_object(id: u64) {
-    let mut storage = GLOBALS.write();
-    storage.try_drop(id);
+    GLOBALS.try_drop(id);
 }
 
 #[wasm_bindgen]
 pub fn get_reference_count(object_id: u64) -> i32 {
-    let storage = GLOBALS.read();
-    return storage.get_reference_count(object_id).unwrap_or(0) as i32;
+    return GLOBALS.get_reference_count(object_id).unwrap_or(0) as i32;
 }
 
 #[wasm_bindgen]
 pub fn create_object() -> u64 {
-    let mut storage = GLOBALS.write();
-    return storage.create_object(ObjectKind::Object);
+    return GLOBALS.create_object(ObjectKind::Object);
 }
 
 #[wasm_bindgen]
 pub fn create_array() -> u64 {
-    let mut storage = GLOBALS.write();
-    let id = storage.create_object(ObjectKind::Array);
+    let id = GLOBALS.create_object(ObjectKind::Array);
     // Initialize length to 0
-    storage.set_object_property(id, ARRAY_LENGTH, Something::Int(0));
+    GLOBALS.set_object_property(id, ARRAY_LENGTH, Something::Int(0));
     return id;
 }
 
 #[wasm_bindgen]
 pub fn array_get_length(array_id: u64) -> i32 {
-    let storage = GLOBALS.read();
-    if let Some(length) = storage.get_object_property(array_id, ARRAY_LENGTH) {
+    if let Some(length) = GLOBALS.get_object_property(array_id, ARRAY_LENGTH) {
         match length {
             Something::Int(len) => return len,
             _ => return 0,
@@ -159,21 +115,18 @@ pub fn array_get_length(array_id: u64) -> i32 {
 
 #[wasm_bindgen]
 pub fn array_set_length(array_id: u64, length: i32) {
-    let mut storage = GLOBALS.write();
-    storage.set_object_property(array_id, ARRAY_LENGTH, Something::Int(length));
+    GLOBALS.set_object_property(array_id, ARRAY_LENGTH, Something::Int(length));
 }
 
 #[wasm_bindgen]
 pub fn delete_object_property(object_id: u64, key: u64) {
-    let mut storage = GLOBALS.write();
-    storage.delete_object_property(object_id, key);
+    GLOBALS.delete_object_property(object_id, key);
 }
 
 #[wasm_bindgen]
 pub fn set_object_property(object_id: u64, key: u64) {
     if let Some(value) = pop_from_something_stack() {
-        let mut storage = GLOBALS.write();
-        storage.set_object_property(object_id, key, value);
+        GLOBALS.set_object_property(object_id, key, value);
     }
 }
 
@@ -209,8 +162,7 @@ pub fn something_push_string() {
 
 #[wasm_bindgen]
 pub fn something_push_ref_to_stack(value: u64) {
-    let storage = GLOBALS.read();
-    if let Some(something) = storage.create_reference(value) {
+    if let Some(something) = GLOBALS.create_reference(value) {
         push_something(something);
     }
 }
@@ -236,7 +188,7 @@ pub fn something_push_blob() {
         bytes.push(byte);
     }
     safe_js_pop_stack();
-    let id = GLOBALS.write().add_blob(bytes);
+    let id = GLOBALS.add_blob(bytes);
     let something = Something::Blob(id);
     push_something(something);
 }
