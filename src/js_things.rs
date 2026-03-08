@@ -150,7 +150,7 @@ pub fn array_get_length(array_id: u64) -> i32 {
     let storage = GLOBALS.read();
     if let Some(length) = storage.get_object_property(array_id, ARRAY_LENGTH) {
         match length {
-            Something::Int(len) => return *len,
+            Something::Int(len) => return len,
             _ => return 0,
         }
     }

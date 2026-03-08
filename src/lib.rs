@@ -2,5 +2,6 @@
 pub mod extern_functions;
 pub mod js_things;
 pub mod my_rwlock;
+pub mod object;
 pub mod storage;
 pub mod value;
