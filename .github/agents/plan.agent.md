@@ -13,3 +13,5 @@ and webassembly to leverage binary data manipulation since shared memory is an a
 - to run benchmarks use `npm run bench -- --run`
 
 The main goal of this library is to interact with shared memory in the same way we would with normal data objects in js.
+
+Ignore the dist, dist-ts, target, and pkg folders. Those do not contain source code.

@@ -22,6 +22,11 @@ export class SharedHeap {
     private mod: InitOutput,
     private memory: WebAssembly.Memory,
   ) {
+    void this.getObjProperty;
+    void this.setObjProperty;
+    void this.setArrayElement;
+    void this.arrayPush;
+    void this.arrayPop;
     this.finalization = new FinalizationRegistry((id: bigint) => {
       this.drop(id);
     });
@@ -119,8 +124,75 @@ export class SharedHeap {
     return this.createProxyForID(id);
   }
 
-  __getObjProperty(objID: bigint, prop: bigint): Something["value"] {
+  private getObjProperty(objID: bigint, prop: bigint): Something["value"] {
     this.mod.get_object_property(objID, prop);
+    return this.decodePoppedValue(objID, prop);
+  }
+
+  private setObjProperty(objID: bigint, prop: bigint, value: unknown): void {
+    this.pushObjectValueToSomethingStack(objID, prop, value);
+    this.mod.set_object_property(objID, prop);
+  }
+
+  private createBinViewKey(objID: bigint, prop: bigint): string {
+    return `${objID}:${prop}`;
+  }
+
+  private arrayGetLength(objID: bigint): number {
+    return this.mod.array_get_length(objID);
+  }
+
+  private arraySetLength(objID: bigint, length: number): void {
+    this.mod.array_set_length(objID, length);
+  }
+
+  private setArrayElement(objID: bigint, index: number, value: unknown): void {
+    if (isBinViewDefinition(value)) {
+      const key = this.createBinViewKey(objID, BigInt(index));
+      this.binViewConstructors.set(key, value.constructor);
+    }
+    this.pushArrayValueToSomethingStack(value);
+    this.mod.array_set_index(objID, index);
+    // Only update length if setting beyond current length
+    // This check is cheaper than always calling __arrayGetLength
+    const currentLength = this.arrayGetLength(objID);
+    if (index >= currentLength) {
+      this.arraySetLength(objID, index + 1);
+    }
+  }
+
+  private arrayGet(objID: bigint, index: number): Something["value"] {
+    this.mod.array_get_index(objID, index);
+    return this.decodePoppedValue(objID, BigInt(index));
+  }
+
+  private arrayPush(objID: bigint, ...items: unknown[]): number {
+    let length = this.arrayGetLength(objID);
+    for (const item of items) {
+      if (isBinViewDefinition(item)) {
+        const key = this.createBinViewKey(objID, BigInt(length));
+        this.binViewConstructors.set(key, item.constructor);
+      }
+      this.pushArrayValueToSomethingStack(item);
+      this.mod.array_set_index(objID, length);
+      length += 1;
+    }
+    this.arraySetLength(objID, length);
+    return length;
+  }
+
+  private arrayPop(objID: bigint): Something["value"] | undefined {
+    const length = this.arrayGetLength(objID);
+    if (length === 0) {
+      return undefined;
+    }
+    const lastIndex = length - 1;
+    const value = this.arrayGet(objID, lastIndex);
+    this.arraySetLength(objID, lastIndex);
+    return value;
+  }
+
+  private decodePoppedValue(objID: bigint, prop: bigint): Something["value"] {
     const result = popObjectFromStack();
     if (result == null) {
       return null;
@@ -145,19 +217,28 @@ export class SharedHeap {
     return result;
   }
 
-  __setObjProperty(objID: bigint, prop: bigint, value: unknown): void {
+  private pushObjectValueToSomethingStack(
+    objID: bigint,
+    prop: bigint,
+    value: unknown,
+  ): void {
     if (isBinViewDefinition(value)) {
       const ctor = value.constructor;
       const key = this.createBinViewKey(objID, prop);
       this.binViewConstructors.set(key, ctor);
+    }
+    this.pushArrayValueToSomethingStack(value);
+  }
+
+  private pushArrayValueToSomethingStack(value: unknown): void {
+    if (isBinViewDefinition(value)) {
+      const ctor = value.constructor;
       const blob = new Uint8Array(ctor.size());
       pushBlobToStack(blob);
       this.mod.something_push_blob();
-      this.mod.set_object_property(objID, prop);
       return;
     }
 
-    // Fast path for primitive types
     const valueType = typeof value;
     if (valueType === "number") {
       if (Number.isInteger(value as number)) {
@@ -165,63 +246,32 @@ export class SharedHeap {
       } else {
         this.mod.something_push_f64_to_stack(value as number);
       }
-      this.mod.set_object_property(objID, prop);
       return;
     }
     if (valueType === "string") {
       pushToStringStack(value as string);
       this.mod.something_push_string();
-      this.mod.set_object_property(objID, prop);
       return;
     }
     if (value === null) {
       this.mod.something_push_null_to_stack();
-      this.mod.set_object_property(objID, prop);
       return;
     }
     if (value instanceof Uint8Array) {
       pushBlobToStack(value);
       this.mod.something_push_blob();
-      this.mod.set_object_property(objID, prop);
       return;
     }
-    // Slow path for object types
     if (SharedHeap.isProxy(value)) {
       const id = SharedHeap.getIDOfProxy(value);
       this.mod.something_push_ref_to_stack(id!);
-      this.mod.set_object_property(objID, prop);
-    } else if (valueType === "object") {
+      return;
+    }
+    if (valueType === "object") {
       const proxy = this.createObject(value);
       const id = SharedHeap.getIDOfProxy(proxy);
       this.mod.something_push_ref_to_stack(id!);
-      this.mod.set_object_property(objID, prop);
     }
-  }
-
-  private createBinViewKey(objID: bigint, prop: bigint): string {
-    return `${objID}:${prop}`;
-  }
-
-  __arrayGetLength(objID: bigint): number {
-    return this.mod.array_get_length(objID);
-  }
-
-  __arraySetLength(objID: bigint, length: number): void {
-    this.mod.array_set_length(objID, length);
-  }
-
-  __setArrayElement(objID: bigint, index: number, value: unknown): void {
-    this.__setObjProperty(objID, BigInt(index), value);
-    // Only update length if setting beyond current length
-    // This check is cheaper than always calling __arrayGetLength
-    const currentLength = this.__arrayGetLength(objID);
-    if (index >= currentLength) {
-      this.__arraySetLength(objID, index + 1);
-    }
-  }
-
-  __arrayDeleteElement(objID: bigint, index: number): void {
-    this.mod.delete_object_property(objID, BigInt(index));
   }
 
   createWorker(): WorkerData {
@@ -294,10 +344,10 @@ const proxySchema: ProxyHandler<Target> = {
     if (prop === "heapID") {
       return target.heapID;
     }
-    return target.__store.__getObjProperty(target.heapID, fastHash(prop));
+    return target.__store["getObjProperty"](target.heapID, fastHash(prop));
   },
   set(target: Target, prop: string, value: any) {
-    target.__store.__setObjProperty(target.heapID, fastHash(prop), value);
+    target.__store["setObjProperty"](target.heapID, fastHash(prop), value);
     return true;
   },
   has(_target: Target, p) {
@@ -313,24 +363,11 @@ function createProxyForObject(objID: bigint, store: SharedHeap): any {
 }
 
 function arrayPush(this: Target, ...items: any[]): number {
-  let length = this.__store.__arrayGetLength(this.heapID);
-  for (let i = 0; i < items.length; i++) {
-    this.__store.__setObjProperty(this.heapID, BigInt(length + i), items[i]);
-    length++;
-  }
-  this.__store.__arraySetLength(this.heapID, length);
-  return length;
+  return this.__store["arrayPush"](this.heapID, ...items);
 }
 
 function arrayPop(this: Target): any {
-  const length = this.__store.__arrayGetLength(this.heapID);
-  if (length === 0) {
-    return undefined;
-  }
-  const lastIndex = length - 1;
-  const value = this.__store.__getObjProperty(this.heapID, BigInt(lastIndex));
-  this.__store.__arrayDeleteElement(this.heapID, lastIndex);
-  this.__store.__arraySetLength(this.heapID, lastIndex);
+  const value = this.__store["arrayPop"](this.heapID);
   return value;
 }
 
@@ -353,7 +390,7 @@ const proxyArraySchema: ProxyHandler<Target> = {
       case "__store":
         return target.__store;
       case "length":
-        return target.__store.__arrayGetLength(target.heapID);
+        return target.__store["arrayGetLength"](target.heapID);
       case "push":
         return target.push;
       case "pop":
@@ -361,11 +398,11 @@ const proxyArraySchema: ProxyHandler<Target> = {
     }
     // Check if it's a numeric index
     const index = Number(prop);
-    return target.__store.__getObjProperty(target.heapID, BigInt(index));
+    return target.__store["arrayGet"](target.heapID, index);
   },
   set(target: Target, prop: string, value: any) {
     const index = Number(prop);
-    target.__store.__setArrayElement(target.heapID, index, value);
+    target.__store["setArrayElement"](target.heapID, index, value);
     return true;
   },
   has(_target: Target, p) {

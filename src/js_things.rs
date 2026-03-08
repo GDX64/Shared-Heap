@@ -6,8 +6,6 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-const ARRAY_LENGTH: u64 = u64::MAX;
-
 struct SomethingStack {
     stack: Vec<Something>,
 }
@@ -95,26 +93,36 @@ pub fn create_object() -> u64 {
 
 #[wasm_bindgen]
 pub fn create_array() -> u64 {
-    let id = GLOBALS.create_object(HeapObjKind::Array);
-    // Initialize length to 0
-    GLOBALS.set_object_property(id, ARRAY_LENGTH, Something::Int(0));
-    return id;
+    GLOBALS.create_object(HeapObjKind::Array)
 }
 
 #[wasm_bindgen]
 pub fn array_get_length(array_id: u64) -> i32 {
-    if let Some(length) = GLOBALS.get_object_property(array_id, ARRAY_LENGTH) {
-        match length {
-            Something::Int(len) => return len,
-            _ => return 0,
-        }
-    }
-    return 0;
+    GLOBALS.array_len(array_id).unwrap_or(0) as i32
 }
 
 #[wasm_bindgen]
 pub fn array_set_length(array_id: u64, length: i32) {
-    GLOBALS.set_object_property(array_id, ARRAY_LENGTH, Something::Int(length));
+    GLOBALS.array_set_length(array_id, length.max(0) as usize);
+}
+
+#[wasm_bindgen]
+pub fn array_get_index(array_id: u64, index: u32) {
+    if let Some(obj) = GLOBALS.array_get_index(array_id, index as usize) {
+        push_to_js_stack(&obj, &GLOBALS);
+    }
+}
+
+#[wasm_bindgen]
+pub fn array_set_index(array_id: u64, index: u32) {
+    if let Some(value) = pop_from_something_stack() {
+        GLOBALS.array_set_index(array_id, index as usize, value);
+    }
+}
+
+#[wasm_bindgen]
+pub fn array_delete_index(array_id: u64, index: u32) {
+    GLOBALS.array_delete_index(array_id, index as usize);
 }
 
 #[wasm_bindgen]

@@ -7,6 +7,7 @@ use crate::w_mutex::{MutexWriteGuard, WasmMutex};
 enum HeapObj {
     Object(HashObject),
     Array(Vec<Something>),
+    #[allow(dead_code)]
     BinView(Vec<u8>),
 }
 
@@ -100,10 +101,60 @@ impl Object {
         }
     }
 
+    pub fn get_index(&self, index: usize) -> Option<Something> {
+        let inner = self.lock_inner();
+        if let HeapObj::Array(arr) = &*inner {
+            return arr.get(index).cloned();
+        } else {
+            panic!("Cannot get index from non-array object");
+        }
+    }
+
+    pub fn set_index(&self, index: usize, value: Something) {
+        let mut inner = self.lock_inner();
+        if let HeapObj::Array(arr) = &mut *inner {
+            if let Some(slot) = arr.get_mut(index) {
+                *slot = value;
+            } else {
+                panic!("Cannot set out-of-bounds index on array object");
+            }
+        } else {
+            panic!("Cannot set index on non-array object");
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        let inner = self.lock_inner();
+        if let HeapObj::Array(arr) = &*inner {
+            return arr.len();
+        } else {
+            panic!("Cannot get length of non-array object");
+        }
+    }
+
+    pub fn set_len(&self, target_len: usize) {
+        let current_len = self.len();
+        if target_len > current_len {
+            for _ in current_len..target_len {
+                self.push(Something::Null);
+            }
+        } else if target_len < current_len {
+            for _ in target_len..current_len {
+                self.pop();
+            }
+        }
+    }
+
+    pub fn delete_index(&self, index: usize) -> Option<Something> {
+        let previous = self.get_index(index)?;
+        self.set_index(index, Something::Null);
+        Some(previous)
+    }
+
     pub fn set_property(&self, key: u64, value: Something) -> Option<Something> {
         let mut inner = self.lock_inner();
         if let HeapObj::Object(obj) = &mut *inner {
-            return obj.properties.insert(key, value);
+            obj.properties.insert(key, value)
         } else {
             panic!("Cannot set property on non-object");
         }
@@ -112,7 +163,7 @@ impl Object {
     pub fn get_property(&self, key: u64) -> Option<Something> {
         let inner = self.lock_inner();
         if let HeapObj::Object(obj) = &*inner {
-            return obj.properties.get(&key).cloned();
+            obj.properties.get(&key).cloned()
         } else {
             panic!("Cannot get property from non-object");
         }
@@ -121,7 +172,7 @@ impl Object {
     pub fn delete_property(&self, key: u64) -> Option<Something> {
         let mut inner = self.lock_inner();
         if let HeapObj::Object(obj) = &mut *inner {
-            return obj.properties.remove(&key);
+            obj.properties.remove(&key)
         } else {
             panic!("Cannot delete property from non-object");
         }
