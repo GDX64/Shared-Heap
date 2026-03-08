@@ -15,6 +15,7 @@ type WorkerData = {
 export class SharedHeap {
   private workerID: number = 0;
   private proxyMap: Map<bigint, WeakRef<any>> = new Map();
+  private binViewConstructors: Map<string, BinViewConstructor> = new Map();
   private finalization: FinalizationRegistry<bigint>;
 
   constructor(
@@ -123,6 +124,13 @@ export class SharedHeap {
       } else if (result.type === "blobPointer") {
         const { len, ptr } = result;
         const blob = new Uint8Array(this.memory.buffer, ptr, len);
+        const key = this.createBinViewKey(objID, prop);
+        const constructor = this.binViewConstructors.get(key);
+        if (constructor) {
+          return new constructor(
+            new DataView(blob.buffer, blob.byteOffset, blob.byteLength),
+          );
+        }
         return blob;
       }
       return result.value;
@@ -131,6 +139,17 @@ export class SharedHeap {
   }
 
   __setObjProperty(objID: bigint, prop: bigint, value: unknown): void {
+    if (isBinViewDefinition(value)) {
+      const ctor = value.constructor;
+      const key = this.createBinViewKey(objID, prop);
+      this.binViewConstructors.set(key, ctor);
+      const blob = new Uint8Array(ctor.size());
+      pushBlobToStack(blob);
+      this.mod.something_push_blob();
+      this.mod.set_object_property(objID, prop);
+      return;
+    }
+
     // Fast path for primitive types
     const valueType = typeof value;
     if (valueType === "number") {
@@ -170,6 +189,10 @@ export class SharedHeap {
       this.mod.something_push_ref_to_stack(id!);
       this.mod.set_object_property(objID, prop);
     }
+  }
+
+  private createBinViewKey(objID: bigint, prop: bigint): string {
+    return `${objID}:${prop}`;
   }
 
   __arrayGetLength(objID: bigint): number {
@@ -361,4 +384,22 @@ export function fastHash(str: string): bigint {
 
 function isArrayID(objID: bigint): boolean {
   return (objID & 0b1n) !== 0n;
+}
+
+type BinViewConstructor = {
+  new (data: DataView): any;
+  size: () => number;
+};
+
+type BinViewDefinition = {
+  type: "binview";
+  constructor: BinViewConstructor;
+};
+
+function isBinViewDefinition(value: unknown): value is BinViewDefinition {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const maybe = value as Partial<BinViewDefinition>;
+  return maybe.type === "binview";
 }
