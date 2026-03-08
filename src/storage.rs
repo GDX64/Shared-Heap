@@ -1,12 +1,13 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::{BuildHasher, Hasher};
 
 use crate::object::{Object, WeakObject};
 use crate::value::Something;
 use crate::w_mutex::{MutexWriteGuard, WasmMutex};
 
 thread_local! {
-    static LOCAL_OBJECTS: RefCell<HashMap<u64, Object>> = RefCell::new(HashMap::new());
+    static LOCAL_OBJECTS: RefCell<HashMap<u64, Object, FastIDHasher>> = RefCell::new(HashMap::with_hasher(FastIDHasher::new()));
 }
 
 fn with_local_object<FLocal, FMissing, R>(id: u64, on_local: FLocal, on_missing: FMissing) -> R
@@ -40,7 +41,7 @@ pub enum ObjectKind {
 }
 
 struct InnerStorage {
-    collection: HashMap<u64, WeakObject>,
+    collection: HashMap<u64, WeakObject, FastIDHasher>,
     last_id: u64,
 }
 
@@ -63,7 +64,7 @@ impl Storage {
     pub fn new() -> Self {
         Storage {
             inner: WasmMutex::new(InnerStorage {
-                collection: HashMap::new(),
+                collection: HashMap::with_hasher(FastIDHasher::new()),
                 last_id: 0,
             }),
         }
@@ -231,5 +232,37 @@ impl Storage {
                 })
             },
         )
+    }
+}
+
+struct FastIDHasher {
+    state: u64,
+}
+
+impl FastIDHasher {
+    const fn new() -> Self {
+        FastIDHasher { state: 0 }
+    }
+}
+
+impl BuildHasher for FastIDHasher {
+    type Hasher = Self;
+
+    fn build_hasher(&self) -> Self::Hasher {
+        FastIDHasher { state: 0 }
+    }
+}
+
+impl Hasher for FastIDHasher {
+    fn finish(&self) -> u64 {
+        self.state
+    }
+
+    fn write_u64(&mut self, i: u64) {
+        self.state = i;
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        panic!("FastIDHasher only supports hashing a single u64");
     }
 }
