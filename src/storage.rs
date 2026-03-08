@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
 
 use crate::object::{Object, WeakObject};
 use crate::value::Something;
+use crate::w_mutex::{MutexWriteGuard, WasmMutex};
 
 thread_local! {
     static LOCAL_OBJECTS: RefCell<HashMap<u64, Object>> = RefCell::new(HashMap::new());
@@ -34,7 +34,7 @@ struct InnerStorage {
 }
 
 pub struct Storage {
-    inner: Mutex<InnerStorage>,
+    inner: WasmMutex<InnerStorage>,
 }
 
 impl InnerStorage {
@@ -95,15 +95,15 @@ impl InnerStorage {
 impl Storage {
     pub fn new() -> Self {
         Storage {
-            inner: Mutex::new(InnerStorage {
+            inner: WasmMutex::new(InnerStorage {
                 collection: HashMap::new(),
                 last_id: 0,
             }),
         }
     }
 
-    fn inner_guard(&self) -> MutexGuard<'_, InnerStorage> {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    fn inner_guard(&self) -> MutexWriteGuard<'_, InnerStorage> {
+        self.inner.write()
     }
 
     pub fn lock(&self, id: u64) -> bool {
