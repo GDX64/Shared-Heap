@@ -4,28 +4,55 @@ use std::sync::{Arc, Weak};
 use crate::value::Something;
 use crate::w_mutex::{MutexWriteGuard, WasmMutex};
 
+enum HeapObj {
+    Object(HashObject),
+    Array(Vec<Something>),
+    BinView(Vec<u8>),
+}
+
+#[derive(Clone, Copy)]
+pub enum HeapObjKind {
+    Object = 0,
+    Array = 1,
+    BinView = 2,
+}
+
+impl HeapObjKind {
+    pub fn mask_id(&self, id: u64) -> u64 {
+        let my_id = *self as u64;
+        return (id << 2) | my_id;
+    }
+}
+
 pub struct Object {
-    inner: Arc<WasmMutex<ObjectInner>>,
+    inner: Arc<WasmMutex<HeapObj>>,
 }
 
 pub struct WeakObject {
-    inner: Weak<WasmMutex<ObjectInner>>,
+    inner: Weak<WasmMutex<HeapObj>>,
 }
 
-struct ObjectInner {
+struct HashObject {
     properties: HashMap<u64, Something>,
 }
 
 impl Object {
-    pub fn new() -> Self {
+    pub fn new(kind: HeapObjKind) -> Self {
+        let heap_obj = match kind {
+            HeapObjKind::Object => {
+                HeapObj::Object(HashObject {
+                    properties: HashMap::new(),
+                })
+            }
+            HeapObjKind::Array => HeapObj::Array(Vec::new()),
+            HeapObjKind::BinView => HeapObj::BinView(Vec::new()),
+        };
         Object {
-            inner: Arc::new(WasmMutex::new(ObjectInner {
-                properties: HashMap::new(),
-            })),
+            inner: Arc::new(WasmMutex::new(heap_obj)),
         }
     }
 
-    fn lock_inner(&self) -> MutexWriteGuard<'_, ObjectInner> {
+    fn lock_inner(&self) -> MutexWriteGuard<'_, HeapObj> {
         self.inner.write()
     }
 
@@ -55,24 +82,58 @@ impl Object {
         }
     }
 
+    pub fn push(&self, value: Something) {
+        let mut inner = self.lock_inner();
+        if let HeapObj::Array(arr) = &mut *inner {
+            arr.push(value);
+        } else {
+            panic!("Cannot push to non-array object");
+        }
+    }
+
+    pub fn pop(&self) -> Option<Something> {
+        let mut inner = self.lock_inner();
+        if let HeapObj::Array(arr) = &mut *inner {
+            return arr.pop();
+        } else {
+            panic!("Cannot pop from non-array object");
+        }
+    }
+
     pub fn set_property(&self, key: u64, value: Something) -> Option<Something> {
         let mut inner = self.lock_inner();
-        return inner.properties.insert(key, value);
+        if let HeapObj::Object(obj) = &mut *inner {
+            return obj.properties.insert(key, value);
+        } else {
+            panic!("Cannot set property on non-object");
+        }
     }
 
     pub fn get_property(&self, key: u64) -> Option<Something> {
         let inner = self.lock_inner();
-        return inner.properties.get(&key).cloned();
+        if let HeapObj::Object(obj) = &*inner {
+            return obj.properties.get(&key).cloned();
+        } else {
+            panic!("Cannot get property from non-object");
+        }
     }
 
     pub fn delete_property(&self, key: u64) -> Option<Something> {
         let mut inner = self.lock_inner();
-        inner.properties.remove(&key)
+        if let HeapObj::Object(obj) = &mut *inner {
+            return obj.properties.remove(&key);
+        } else {
+            panic!("Cannot delete property from non-object");
+        }
     }
 
     pub fn take_properties(&self) -> HashMap<u64, Something> {
         let mut inner = self.lock_inner();
-        return std::mem::take(&mut inner.properties);
+        if let HeapObj::Object(obj) = &mut *inner {
+            return std::mem::take(&mut obj.properties);
+        } else {
+            panic!("Cannot take properties from non-object");
+        }
     }
 }
 

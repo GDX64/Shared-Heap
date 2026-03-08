@@ -1,10 +1,6 @@
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{
-    extern_functions::*,
-    storage::{ObjectKind, Storage},
-    value::Something,
-};
+use crate::{extern_functions::*, object::HeapObjKind, storage::Storage, value::Something};
 use std::{
     cell::RefCell,
     sync::{Arc, LazyLock},
@@ -94,12 +90,12 @@ pub fn get_reference_count(object_id: u64) -> i32 {
 
 #[wasm_bindgen]
 pub fn create_object() -> u64 {
-    return GLOBALS.create_object(ObjectKind::Object);
+    return GLOBALS.create_object(HeapObjKind::Object);
 }
 
 #[wasm_bindgen]
 pub fn create_array() -> u64 {
-    let id = GLOBALS.create_object(ObjectKind::Array);
+    let id = GLOBALS.create_object(HeapObjKind::Array);
     // Initialize length to 0
     GLOBALS.set_object_property(id, ARRAY_LENGTH, Something::Int(0));
     return id;

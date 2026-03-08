@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{BuildHasher, Hasher};
 
-use crate::object::{Object, WeakObject};
+use crate::object::{HeapObjKind, Object, WeakObject};
 use crate::value::Something;
 use crate::w_mutex::{MutexWriteGuard, WasmMutex};
 
@@ -150,16 +150,13 @@ impl Storage {
         )
     }
 
-    pub fn create_object(&self, kind: ObjectKind) -> u64 {
+    pub fn create_object(&self, kind: HeapObjKind) -> u64 {
         let mut inner = self.inner_guard();
         let base_id = inner.last_id;
         inner.last_id += 1;
-        let id = match kind {
-            ObjectKind::Object => base_id << 1,
-            ObjectKind::Array => (base_id << 1) | 0b1,
-        };
+        let id = kind.mask_id(base_id);
 
-        let object = Object::new();
+        let object = Object::new(kind);
         inner.collection.insert(id, object.downgrade());
         local_insert(id, object);
         id
