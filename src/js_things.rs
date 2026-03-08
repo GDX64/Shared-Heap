@@ -5,7 +5,10 @@ use crate::{
     storage::{ObjectKind, Storage},
     value::Something,
 };
-use std::{cell::RefCell, sync::LazyLock};
+use std::{
+    cell::RefCell,
+    sync::{Arc, LazyLock},
+};
 
 const ARRAY_LENGTH: u64 = u64::MAX;
 
@@ -46,23 +49,23 @@ fn pop_from_something_stack() -> Option<Something> {
 static GLOBALS: LazyLock<Storage> = LazyLock::new(Storage::new);
 
 #[wasm_bindgen]
-pub fn lock() {
-    GLOBALS.lock();
+pub fn lock(object_id: u64) -> bool {
+    GLOBALS.lock(object_id)
 }
 
 #[wasm_bindgen]
-pub fn unlock() {
-    GLOBALS.unlock();
+pub fn unlock(object_id: u64) -> bool {
+    GLOBALS.unlock(object_id)
 }
 
 #[wasm_bindgen]
-pub fn try_lock() -> bool {
-    return GLOBALS.try_lock();
+pub fn try_lock(object_id: u64) -> bool {
+    GLOBALS.try_lock(object_id)
 }
 
 #[wasm_bindgen]
-pub fn lock_pointer() -> *const i32 {
-    return GLOBALS.lock_pointer();
+pub fn lock_pointer(object_id: u64) -> *const i32 {
+    GLOBALS.lock_pointer(object_id)
 }
 
 #[wasm_bindgen]
@@ -188,12 +191,11 @@ pub fn something_push_blob() {
         bytes.push(byte);
     }
     safe_js_pop_stack();
-    let id = GLOBALS.add_blob(bytes);
-    let something = Something::Blob(id);
+    let something = Something::Blob(Arc::new(bytes));
     push_something(something);
 }
 
-fn push_to_js_stack(value: &Something, db: &Storage) {
+fn push_to_js_stack(value: &Something, _db: &Storage) {
     match value {
         Something::Int(v) => {
             safe_put_i32(*v);
@@ -204,11 +206,8 @@ fn push_to_js_stack(value: &Something, db: &Storage) {
                 safe_push_to_string(*byte);
             }
         }
-        Something::Blob(id) => {
-            let ptr = db.get_blob_pointer(*id);
-            if let Some((blob_ptr, len)) = ptr {
-                safe_create_blob(blob_ptr as usize, len);
-            }
+        Something::Blob(blob) => {
+            safe_create_blob(blob.as_ref().as_ptr() as usize, blob.as_ref().len());
         }
         Something::Ref { id, object: _ } => {
             js_put_ref(*id);

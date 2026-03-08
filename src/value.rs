@@ -1,4 +1,5 @@
 use crate::object::Object;
+use std::sync::Arc;
 const INT_TAG: u8 = 0;
 const VALUE_STRING_TAG: u8 = 1;
 const NULL_TAG: u8 = 2;
@@ -12,7 +13,7 @@ pub enum Something {
     Int(i32),
     Float(f64),
     String(Vec<u8>),
-    Blob(u64),
+    Blob(Arc<Vec<u8>>),
     Ref { id: u64, object: Object },
     Null,
 }

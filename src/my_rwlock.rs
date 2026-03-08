@@ -1,5 +1,7 @@
 use std::{
+    cell::RefCell,
     cell::UnsafeCell,
+    collections::HashMap,
     ops::{Deref, DerefMut},
     sync::atomic::{AtomicI32, Ordering},
 };
@@ -15,15 +17,47 @@ unsafe impl<T: Send> Send for MyRwLock<T> {}
 unsafe impl<T: Send + Sync> Sync for MyRwLock<T> {}
 
 thread_local! {
-    static HAS_LOCK: UnsafeCell<bool> = UnsafeCell::new(false);
+    static HELD_LOCKS: RefCell<HashMap<usize, u32>> = RefCell::new(HashMap::new());
 }
 
-fn has_global_lock() -> bool {
-    return HAS_LOCK.with(|v| unsafe { *v.get() });
+fn lock_key(lock: &ThreadLock) -> usize {
+    lock.pointer() as usize
 }
 
-fn set_global_lock(value: bool) {
-    HAS_LOCK.with(|v| unsafe { *v.get() = value });
+fn try_reentrant_enter(lock: &ThreadLock) -> bool {
+    let key = lock_key(lock);
+    HELD_LOCKS.with(|locks| {
+        let mut locks = locks.borrow_mut();
+        if let Some(count) = locks.get_mut(&key) {
+            *count += 1;
+            return true;
+        }
+        false
+    })
+}
+
+fn record_first_enter(lock: &ThreadLock) {
+    let key = lock_key(lock);
+    HELD_LOCKS.with(|locks| {
+        locks.borrow_mut().insert(key, 1);
+    });
+}
+
+fn should_release_underlying(lock: &ThreadLock) -> bool {
+    let key = lock_key(lock);
+    HELD_LOCKS.with(|locks| {
+        let mut locks = locks.borrow_mut();
+        let count = locks
+            .get_mut(&key)
+            .expect("Lock is not held by this thread");
+
+        *count -= 1;
+        if *count == 0 {
+            locks.remove(&key);
+            return true;
+        }
+        false
+    })
 }
 
 impl<T> MyRwLock<T> {
@@ -111,7 +145,7 @@ impl ThreadLock {
     }
 
     pub(crate) fn lock_read(&self) {
-        if has_global_lock() {
+        if try_reentrant_enter(self) {
             return;
         }
         loop {
@@ -122,6 +156,7 @@ impl ThreadLock {
                     .compare_exchange(state, state + 1, Ordering::Acquire, Ordering::Relaxed)
                     .is_ok();
                 if is_ok {
+                    record_first_enter(self);
                     return;
                 }
             }
@@ -130,7 +165,7 @@ impl ThreadLock {
     }
 
     pub(crate) fn lock_write(&self) {
-        if has_global_lock() {
+        if try_reentrant_enter(self) {
             return;
         }
         loop {
@@ -141,6 +176,7 @@ impl ThreadLock {
                     .compare_exchange(state, WRITE, Ordering::Acquire, Ordering::Relaxed)
                     .is_ok();
                 if is_ok {
+                    record_first_enter(self);
                     return;
                 }
             }
@@ -149,7 +185,7 @@ impl ThreadLock {
     }
 
     pub(crate) fn release_read(&self) {
-        if has_global_lock() {
+        if !should_release_underlying(self) {
             return;
         }
         self.lock_state.fetch_sub(1, Ordering::Release);
@@ -157,42 +193,25 @@ impl ThreadLock {
     }
 
     pub(crate) fn release_write(&self) {
-        if has_global_lock() {
+        if !should_release_underlying(self) {
             return;
         }
         self.lock_state.store(UNLOCKED, Ordering::Release);
         notify(&self.lock_state);
     }
 
-    pub fn try_global_lock_write(&self) -> bool {
-        if has_global_lock() {
-            panic!("Global lock is already held by this thread");
+    pub fn try_lock_write(&self) -> bool {
+        if try_reentrant_enter(self) {
+            return true;
         }
         let ok = self
             .lock_state
             .compare_exchange(UNLOCKED, WRITE, Ordering::Acquire, Ordering::Relaxed)
             .is_ok();
         if ok {
-            set_global_lock(true);
+            record_first_enter(self);
         }
         return ok;
-    }
-
-    pub fn global_lock_write(&self) {
-        if has_global_lock() {
-            panic!("Global lock is already held by this thread");
-        }
-        self.lock_write();
-        set_global_lock(true);
-    }
-
-    pub fn release_global_write(&self) {
-        if !has_global_lock() {
-            panic!("Global lock is not held by this thread");
-        }
-        self.lock_state.store(UNLOCKED, Ordering::Release);
-        notify(&self.lock_state);
-        set_global_lock(false);
     }
 
     pub fn pointer(&self) -> *const i32 {

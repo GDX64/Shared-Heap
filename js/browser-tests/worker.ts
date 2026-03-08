@@ -7,7 +7,7 @@ self.onmessage = async (event) => {
   const counter = db.getObject<{ value: number }>(counterID)!;
 
   for (let i = 0; i < N; i++) {
-    db.withLock(() => {
+    db.withLockOn(counter, () => {
       counter.value += 1;
     });
   }

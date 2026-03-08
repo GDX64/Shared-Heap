@@ -64,12 +64,19 @@ export class SharedHeap {
     return new SharedHeap(mod, workerData.memory);
   }
 
-  withLock<T>(fn: () => T): T {
+  withLockOn<T>(obj: any, fn: () => T): T {
+    const id = SharedHeap.getIDOfProxy(obj);
+    if (id == null) {
+      throw new Error("Can only lock shared-heap proxy objects");
+    }
     try {
-      this.mod.lock();
+      const locked = this.mod.lock(id);
+      if (!locked) {
+        throw new Error("Object is not available for locking");
+      }
       return fn();
     } finally {
-      this.mod.unlock();
+      this.mod.unlock(id);
     }
   }
 
