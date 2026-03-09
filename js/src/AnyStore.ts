@@ -34,6 +34,11 @@ export class SharedHeap {
     });
   }
 
+  /**
+   * **IMPORTANT**
+   *
+   * This method should rarely be used directly, objects will be dropped wen their proxies are garbage collected.
+   */
   drop(obj: unknown): void {
     let id;
     if (typeof obj === "bigint") {
