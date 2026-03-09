@@ -5,22 +5,21 @@ type SchemaValues = "f64" | "i32";
 type Schema = Record<string, SchemaValues>;
 
 export class BinView {
-  constructor(public data: DataView) {}
+  constructor(
+    public data: DataView,
+    public heapID: bigint,
+  ) {}
 
-  static fromSharedMemory(
-    memory: WebAssembly.Memory,
-    pointer: number,
-  ): BinView {
-    const view = new DataView(memory.buffer, pointer);
-    return new BinView(view);
+  static size(): number {
+    return 0;
+  }
+
+  static definition(): any {
+    throw new Error("Must call schema method to get definition");
   }
 
   static schema<S extends Schema>(schema: S): ExtendedBinViewConstructor<S> {
-    const b = class extends BinView {
-      constructor(data: DataView) {
-        super(data);
-      }
-    };
+    const b = class extends BinView {};
 
     const schemaKey = fastHash(JSON.stringify(schema));
 
@@ -90,9 +89,9 @@ type MappedSchema<S extends Schema> = {
 
 export type ExtendedBinView<S extends Schema> = BinView & MappedSchema<S>;
 
-export type ExtendedBinViewConstructor<S extends Schema> = {
+export interface ExtendedBinViewConstructor<S extends Schema> extends BinView {
   new (data: DataView): ExtendedBinView<S>;
-  schema: (schema: S) => ExtendedBinViewConstructor<S>;
+  schema: <S extends Schema>(schema: S) => ExtendedBinViewConstructor<S>;
   size: () => number;
   definition: () => MappedSchema<S>;
-};
+}
