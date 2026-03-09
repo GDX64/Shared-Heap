@@ -108,7 +108,7 @@ export class SharedHeap {
     if (isArrayID(id)) {
       obj = createProxyForArray(id, this);
     } else if (isBinView(id)) {
-      const schemaKey = BigInt(this.mod.get_bin_view_schema(id));
+      const schemaKey = this.mod.get_bin_view_schema(id);
       const viewPtr = this.mod.get_bin_view_ptr(id);
       const ctor =
         this.binViewConstructorsById.get(id) ??
