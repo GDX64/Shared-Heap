@@ -17,6 +17,7 @@ export class SharedHeap {
   private workerID: number = 0;
   private proxyMap: Map<bigint, WeakRef<any>> = new Map();
   private binViewConstructors: Map<bigint, BinViewConstructor> = new Map();
+  private binViewConstructorsById: Map<bigint, BinViewConstructor> = new Map();
   private finalization: FinalizationRegistry<bigint>;
 
   constructor(
@@ -41,6 +42,7 @@ export class SharedHeap {
       id = SharedHeap.getIDOfProxy(obj);
     }
     this.proxyMap.delete(id!);
+    this.binViewConstructorsById.delete(id!);
     this.mod.drop_object(id!);
   }
 
@@ -106,13 +108,18 @@ export class SharedHeap {
     if (isArrayID(id)) {
       obj = createProxyForArray(id, this);
     } else if (isBinView(id)) {
-      const schemaKey = this.mod.get_bin_view_schema(id);
-      const getViewPtr = this.mod.get_bin_view_ptr(id);
-      const ctor = this.binViewConstructors.get(schemaKey);
+      const schemaKey = BigInt(this.mod.get_bin_view_schema(id));
+      const viewPtr = this.mod.get_bin_view_ptr(id);
+      const ctor =
+        this.binViewConstructorsById.get(id) ??
+        this.binViewConstructors.get(schemaKey);
       if (!ctor) {
         throw new Error("No constructor found for bin view with schema key");
       }
-      return new ctor(new DataView(this.memory.buffer, Number(getViewPtr)));
+      this.binViewConstructorsById.set(id, ctor);
+      obj = new ctor(
+        new DataView(this.memory.buffer, Number(viewPtr), ctor.size()),
+      );
     } else {
       obj = createProxyForObject(id, this);
     }
@@ -153,7 +160,7 @@ export class SharedHeap {
 
   private setArrayElement(objID: bigint, index: number, value: unknown): void {
     if (isBinViewDefinition(value)) {
-      this.binViewConstructors.set(value.schemaKey, value.constructor);
+      this.binViewConstructors.set(BigInt(value.schemaKey), value.constructor);
     }
     this.pushSomething(value);
     this.mod.array_set_index(objID, index);
@@ -168,7 +175,7 @@ export class SharedHeap {
     let length = this.arrayGetLength(objID);
     for (const item of items) {
       if (isBinViewDefinition(item)) {
-        this.binViewConstructors.set(item.schemaKey, item.constructor);
+        this.binViewConstructors.set(BigInt(item.schemaKey), item.constructor);
       }
       this.pushSomething(item);
       this.mod.array_set_index(objID, length);
@@ -209,10 +216,13 @@ export class SharedHeap {
 
   private pushSomething(value: unknown): void {
     if (isBinViewDefinition(value)) {
-      const ctor = value.constructor;
-      const blob = new Uint8Array(ctor.size());
-      pushBlobToStack(blob);
-      this.mod.something_push_blob();
+      this.binViewConstructors.set(BigInt(value.schemaKey), value.constructor);
+      const binViewId = this.mod.create_bin_view(
+        BigInt(value.schemaKey),
+        value.constructor.size(),
+      );
+      this.binViewConstructorsById.set(binViewId, value.constructor);
+      this.mod.something_push_ref_to_stack(binViewId);
       return;
     }
 

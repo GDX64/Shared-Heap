@@ -7,8 +7,7 @@ use crate::w_mutex::{MutexWriteGuard, WasmMutex};
 enum HeapObj {
     Object(HashObject),
     Array(Vec<Something>),
-    #[allow(dead_code)]
-    BinView(Vec<u8>),
+    BinView(BinViewObject),
 }
 
 #[derive(Clone, Copy)]
@@ -37,6 +36,11 @@ struct HashObject {
     properties: HashMap<u64, Something>,
 }
 
+struct BinViewObject {
+    schema_key: u64,
+    bytes: Vec<u8>,
+}
+
 impl Object {
     pub fn new(kind: HeapObjKind) -> Self {
         let heap_obj = match kind {
@@ -46,10 +50,24 @@ impl Object {
                 })
             }
             HeapObjKind::Array => HeapObj::Array(Vec::new()),
-            HeapObjKind::BinView => HeapObj::BinView(Vec::new()),
+            HeapObjKind::BinView => {
+                HeapObj::BinView(BinViewObject {
+                    schema_key: 0,
+                    bytes: Vec::new(),
+                })
+            }
         };
         Object {
             inner: Arc::new(WasmMutex::new(heap_obj)),
+        }
+    }
+
+    pub fn new_bin_view(schema_key: u64, size: usize) -> Self {
+        Object {
+            inner: Arc::new(WasmMutex::new(HeapObj::BinView(BinViewObject {
+                schema_key,
+                bytes: vec![0; size],
+            }))),
         }
     }
 
@@ -184,6 +202,24 @@ impl Object {
             return std::mem::take(&mut obj.properties);
         } else {
             panic!("Cannot take properties from non-object");
+        }
+    }
+
+    pub fn get_bin_view_schema(&self) -> u64 {
+        let inner = self.lock_inner();
+        if let HeapObj::BinView(view) = &*inner {
+            view.schema_key
+        } else {
+            panic!("Cannot get bin view schema from non-binview object");
+        }
+    }
+
+    pub fn get_bin_view_ptr(&self) -> usize {
+        let inner = self.lock_inner();
+        if let HeapObj::BinView(view) = &*inner {
+            view.bytes.as_ptr() as usize
+        } else {
+            panic!("Cannot get bin view pointer from non-binview object");
         }
     }
 }

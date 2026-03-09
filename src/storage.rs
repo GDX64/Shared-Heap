@@ -12,6 +12,10 @@ fn is_array_id(id: u64) -> bool {
     (id & 0b11) == (HeapObjKind::Array as u64)
 }
 
+fn is_bin_view_id(id: u64) -> bool {
+    (id & 0b11) == (HeapObjKind::BinView as u64)
+}
+
 thread_local! {
     static LOCAL_OBJECTS: RefCell<HashMap<u64, Object, FastIDHasher>> = RefCell::new(HashMap::with_hasher(FastIDHasher::new()));
 }
@@ -168,6 +172,18 @@ impl Storage {
         id
     }
 
+    pub fn create_bin_view(&self, schema_key: u64, size: usize) -> u64 {
+        let mut inner = self.inner_guard();
+        let base_id = inner.last_id;
+        inner.last_id += 1;
+        let id = HeapObjKind::BinView.mask_id(base_id);
+
+        let object = Object::new_bin_view(schema_key, size);
+        inner.collection.insert(id, object.downgrade());
+        local_insert(id, object);
+        id
+    }
+
     pub fn get_object(&self, id: u64) -> Option<Object> {
         with_local_object(
             id,
@@ -297,6 +313,28 @@ impl Storage {
             array_id,
             |object| object.delete_index(index),
             || self.get_inner_object(array_id)?.delete_index(index),
+        )
+    }
+
+    pub fn get_bin_view_schema(&self, bin_view_id: u64) -> Option<u64> {
+        if !is_bin_view_id(bin_view_id) {
+            return None;
+        }
+        with_local_object(
+            bin_view_id,
+            |object| Some(object.get_bin_view_schema()),
+            || Some(self.get_inner_object(bin_view_id)?.get_bin_view_schema()),
+        )
+    }
+
+    pub fn get_bin_view_ptr(&self, bin_view_id: u64) -> Option<usize> {
+        if !is_bin_view_id(bin_view_id) {
+            return None;
+        }
+        with_local_object(
+            bin_view_id,
+            |object| Some(object.get_bin_view_ptr()),
+            || Some(self.get_inner_object(bin_view_id)?.get_bin_view_ptr()),
         )
     }
 

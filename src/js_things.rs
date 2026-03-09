@@ -97,6 +97,21 @@ pub fn create_array() -> u64 {
 }
 
 #[wasm_bindgen]
+pub fn create_bin_view(schema_key: u64, size: u32) -> u64 {
+    GLOBALS.create_bin_view(schema_key, size as usize)
+}
+
+#[wasm_bindgen]
+pub fn get_bin_view_schema(bin_view_id: u64) -> u64 {
+    GLOBALS.get_bin_view_schema(bin_view_id).unwrap_or(0)
+}
+
+#[wasm_bindgen]
+pub fn get_bin_view_ptr(bin_view_id: u64) -> usize {
+    GLOBALS.get_bin_view_ptr(bin_view_id).unwrap_or(0)
+}
+
+#[wasm_bindgen]
 pub fn array_get_length(array_id: u64) -> i32 {
     GLOBALS.array_len(array_id).unwrap_or(0) as i32
 }
