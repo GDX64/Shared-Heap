@@ -94,10 +94,10 @@ describe("user record updates", () => {
 
 // Array operations
 describe("array push operations", () => {
-  const list = db.createObject({ items: SharedArray.from([]) });
+  const list = db.createObject({ items: SharedArray.from<number>([]) });
 
   bench("shared heap", () => {
-    list.items = SharedArray.from([]);
+    list.items = SharedArray.from<number>([]);
     for (let i = 0; i < 1000; i++) {
       list.items.push(i);
     }
