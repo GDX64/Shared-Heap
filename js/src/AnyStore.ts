@@ -4,6 +4,7 @@ import initModule, {
 } from "../pkg/shared_heap";
 import { BinView } from "./BinView";
 import { fastHash } from "./hash";
+import { SharedArray } from "./SharedArray";
 import {
   popObjectFromStack,
   pushBlobToStack,
@@ -216,6 +217,18 @@ export class SharedHeap {
   }
 
   private pushSomething(value: unknown): void {
+    if (isSharedArrayInst(value)) {
+      // If it's a SharedArray marker (heapID 0n), create a new array
+      if (value.heapID === 0n) {
+        const arrayId = this.mod.create_array();
+        this.mod.something_push_ref_to_stack(arrayId);
+        return;
+      }
+      // Otherwise, push the existing array reference
+      this.mod.something_push_ref_to_stack(value.heapID);
+      return;
+    }
+
     if (isBinViewInst(value)) {
       const binViewId = this.mod.create_bin_view(
         value.schemaKey(),
@@ -321,8 +334,6 @@ export class SharedHeap {
 type Target = {
   heapID: bigint;
   __store: SharedHeap;
-  push?: typeof arrayPush;
-  pop?: typeof arrayPop;
 };
 
 const proxySchema: ProxyHandler<Target> = {
@@ -348,53 +359,61 @@ function createProxyForObject(objID: bigint, store: SharedHeap): any {
   return new Proxy({ heapID: objID, __store: store }, proxySchema);
 }
 
-function arrayPush(this: Target, ...items: any[]): number {
-  return this.__store["arrayPush"](this.heapID, ...items);
-}
-
-function arrayPop(this: Target): any {
-  const value = this.__store["arrayPop"](this.heapID);
-  return value;
-}
-
 function createProxyForArray(objID: bigint, store: SharedHeap): any {
-  const target: Target = {
-    heapID: objID,
-    __store: store,
-    push: arrayPush,
-    pop: arrayPop,
-  };
+  const array = new SharedArray(objID, store);
 
-  return new Proxy(target, proxyArraySchema);
+  return new Proxy(array, {
+    get(target: SharedArray, prop: string | symbol): any {
+      if (typeof prop === "symbol") {
+        return (target as any)[prop];
+      }
+
+      // Handle built-in properties and methods
+      if (prop === "heapID" || prop === "__store" || prop === "length") {
+        return (target as any)[prop];
+      }
+
+      // Handle methods
+      if (prop in target && typeof (target as any)[prop] === "function") {
+        return (target as any)[prop].bind(target);
+      }
+
+      // Handle numeric indices
+      const index = Number(prop);
+      if (!isNaN(index) && index >= 0 && Number.isInteger(index)) {
+        return target.get(index);
+      }
+
+      return undefined;
+    },
+    set(target: SharedArray, prop: string | symbol, value: any): boolean {
+      if (typeof prop === "symbol") {
+        return false;
+      }
+
+      // Handle length setter
+      if (prop === "length") {
+        target.length = value;
+        return true;
+      }
+
+      // Handle numeric indices
+      const index = Number(prop);
+      if (!isNaN(index) && index >= 0 && Number.isInteger(index)) {
+        target.set(index, value);
+        return true;
+      }
+
+      return false;
+    },
+    has(target: SharedArray, p: string | symbol): boolean {
+      if (typeof p === "symbol") {
+        return false;
+      }
+      return p === "heapID";
+    },
+  });
 }
-
-const proxyArraySchema: ProxyHandler<Target> = {
-  get(target: Target, prop: string) {
-    switch (prop) {
-      case "heapID":
-        return target.heapID;
-      case "__store":
-        return target.__store;
-      case "length":
-        return target.__store["arrayGetLength"](target.heapID);
-      case "push":
-        return target.push;
-      case "pop":
-        return target.pop;
-    }
-    // Check if it's a numeric index
-    const index = Number(prop);
-    return target.__store["arrayGet"](target.heapID, index);
-  },
-  set(target: Target, prop: string, value: any) {
-    const index = Number(prop);
-    target.__store["setArrayElement"](target.heapID, index, value);
-    return true;
-  },
-  has(_target: Target, p) {
-    return p === "heapID";
-  },
-};
 
 function isArrayID(objID: bigint): boolean {
   return (objID & 0b1n) !== 0n;
@@ -406,4 +425,17 @@ function isBinView(objID: bigint): boolean {
 
 function isBinViewInst(value: unknown): value is BinView {
   return value instanceof BinView;
+}
+
+function isSharedArrayInst(
+  value: unknown,
+): value is import("./SharedArray").SharedArray {
+  return (
+    value != null &&
+    typeof value === "object" &&
+    "heapID" in value &&
+    "__store" in value &&
+    "push" in value &&
+    "pop" in value
+  );
 }
