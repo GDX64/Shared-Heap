@@ -10,6 +10,7 @@ describe("bin view", async () => {
     counter: "f64",
   });
   const db = await SharedHeap.create();
+  db.registerView(BinViewConstructor);
   const obj = db.createObject({
     view: BinViewConstructor.definition(),
   });
