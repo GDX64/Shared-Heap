@@ -6,7 +6,7 @@ type Schema = Record<string, SchemaValues>;
 
 export class BinView {
   constructor(
-    private data: DataView,
+    private data: Float64Array,
     public readonly heapID: bigint,
   ) {}
 
@@ -18,6 +18,14 @@ export class BinView {
     throw new Error("Must call schema method to get size");
   }
 
+  static fromMemory(
+    buffer: ArrayBuffer,
+    pointer: number,
+    heapID: bigint,
+  ): BinView {
+    return new BinView(new Float64Array(buffer, pointer, this.size()), heapID);
+  }
+
   static size(): number {
     return 0;
   }
@@ -27,14 +35,14 @@ export class BinView {
   }
 
   static empty(): BinView {
-    return new BinView(new DataView(new ArrayBuffer(0)), 0n);
+    return new BinView(new Float64Array(0), 0n);
   }
 
   static schema<S extends Schema>(schema: S): ExtendedBinViewConstructor<S> {
     const schemaKey = fastHash(JSON.stringify(schema));
     class XB extends BinView {
       static empty(): BinView {
-        return new XB(new DataView(new ArrayBuffer(this.size())), 0n);
+        return new XB(new Float64Array(this.size()), 0n);
       }
 
       schemaKey() {
@@ -43,6 +51,14 @@ export class BinView {
 
       size(): number {
         return (this.constructor as typeof XB).size();
+      }
+
+      static fromMemory(
+        buffer: ArrayBuffer,
+        pointer: number,
+        heapID: bigint,
+      ): BinView {
+        return new XB(new Float64Array(buffer, pointer, this.size()), heapID);
       }
     }
 
@@ -54,24 +70,14 @@ export class BinView {
       let set;
       if (type === "f64") {
         get = function (this: BinView) {
-          const data: DataView = this.data;
-          return data.getFloat64(thisIndex);
+          const data: Float64Array = this.data;
+          return data[thisIndex];
         };
         set = function (this: BinView, value: number) {
-          const data: DataView = this.data;
-          data.setFloat64(thisIndex, value);
+          const data: Float64Array = this.data;
+          data[thisIndex] = value;
         };
         index += 8;
-      } else if (type === "i32") {
-        get = function (this: BinView) {
-          const data: DataView = this.data;
-          return data.getInt32(thisIndex);
-        };
-        set = function (this: BinView, value: number) {
-          const data: DataView = this.data;
-          data.setInt32(thisIndex, value);
-        };
-        index += 4;
       }
       if (get) {
         Object.defineProperty(XB.prototype, key, {
@@ -118,9 +124,14 @@ type MappedSchema<S extends Schema> = {
 export type ExtendedBinView<S extends Schema> = BinView & MappedSchema<S>;
 
 export interface ExtendedBinViewConstructor<S extends Schema> extends BinView {
-  new (data: DataView, heapID: bigint): ExtendedBinView<S>;
+  new (data: Float64Array, heapID: bigint): ExtendedBinView<S>;
   schema: <S extends Schema>(schema: S) => ExtendedBinViewConstructor<S>;
   size: () => number;
   definition: () => SchemaDefinition<S>;
   empty: () => ExtendedBinView<S>;
+  fromMemory: (
+    buffer: ArrayBuffer,
+    pointer: number,
+    heapID: bigint,
+  ) => ExtendedBinView<S>;
 }

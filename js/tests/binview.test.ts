@@ -10,7 +10,7 @@ describe("bin view", async () => {
     const db = await SharedHeap.create();
     const view = BinView.schema({
       a: "f64",
-      b: "i32",
+      b: "f64",
     });
 
     db.registerView(view);

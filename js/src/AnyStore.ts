@@ -126,10 +126,7 @@ export class SharedHeap {
       if (!ctor) {
         throw new Error("No constructor found for bin view with schema key ");
       }
-      obj = new ctor(
-        new DataView(this.memory.buffer, Number(viewPtr), ctor.size()),
-        id,
-      );
+      obj = ctor.fromMemory(this.memory.buffer, viewPtr, id);
     } else {
       obj = createProxyForObject(id, this);
     }
