@@ -6,12 +6,6 @@ use crate::object::{HeapObjKind, Object, WeakObject};
 use crate::value::Something;
 use crate::w_mutex::{MutexWriteGuard, WasmMutex};
 
-const ARRAY_LENGTH_KEY: u64 = u64::MAX;
-
-fn is_array_id(id: u64) -> bool {
-    (id & 0b11) == (HeapObjKind::Array as u64)
-}
-
 fn is_bin_view_id(id: u64) -> bool {
     (id & 0b11) == (HeapObjKind::BinView as u64)
 }
@@ -193,17 +187,6 @@ impl Storage {
     }
 
     pub fn set_object_property(&self, object_id: u64, key: u64, value: Something) {
-        if is_array_id(object_id) {
-            if key == ARRAY_LENGTH_KEY {
-                if let Something::Int(length) = value {
-                    self.array_set_length(object_id, length.max(0) as usize);
-                }
-            } else {
-                self.array_set_index(object_id, key as usize, value);
-            }
-            return;
-        }
-
         let v1 = value.clone();
         let v2 = value;
         with_local_object(
@@ -222,13 +205,6 @@ impl Storage {
     }
 
     pub fn get_object_property(&self, object_id: u64, key: u64) -> Option<Something> {
-        if is_array_id(object_id) {
-            if key == ARRAY_LENGTH_KEY {
-                return Some(Something::Int(self.array_len(object_id)? as i32));
-            }
-            return self.array_get_index(object_id, key as usize);
-        }
-
         with_local_object(
             object_id,
             |object| object.get_property(key),
@@ -237,13 +213,6 @@ impl Storage {
     }
 
     pub fn delete_object_property(&self, object_id: u64, key: u64) -> Option<Something> {
-        if is_array_id(object_id) {
-            if key == ARRAY_LENGTH_KEY {
-                return None;
-            }
-            return self.array_delete_index(object_id, key as usize);
-        }
-
         let prop = with_local_object(
             object_id,
             |object| object.delete_property(key),
@@ -260,27 +229,11 @@ impl Storage {
         )
     }
 
-    pub fn array_set_length(&self, array_id: u64, length: usize) {
+    pub fn array_pop(&self, array_id: u64) -> Option<Something> {
         with_local_object(
             array_id,
-            |object| {
-                object.set_len(length);
-            },
-            || {
-                let object = match self.get_inner_object(array_id) {
-                    Some(object) => object,
-                    None => return,
-                };
-                object.set_len(length);
-            },
-        )
-    }
-
-    pub fn array_get_index(&self, array_id: u64, index: usize) -> Option<Something> {
-        with_local_object(
-            array_id,
-            |object| object.get_index(index),
-            || self.get_inner_object(array_id)?.get_index(index),
+            |object| object.pop(),
+            || self.get_inner_object(array_id)?.pop(),
         )
     }
 
@@ -290,9 +243,6 @@ impl Storage {
         with_local_object(
             array_id,
             |object| {
-                if index >= object.len() {
-                    object.set_len(index + 1);
-                }
                 object.set_index(index, v1);
             },
             || {
@@ -300,19 +250,33 @@ impl Storage {
                     Some(object) => object,
                     None => return,
                 };
-                if index >= object.len() {
-                    object.set_len(index + 1);
-                }
                 object.set_index(index, v2);
             },
         )
     }
 
-    pub fn array_delete_index(&self, array_id: u64, index: usize) -> Option<Something> {
+    pub fn array_push(&self, array_id: u64, value: Something) {
+        let v1 = value.clone();
         with_local_object(
             array_id,
-            |object| object.delete_index(index),
-            || self.get_inner_object(array_id)?.delete_index(index),
+            |object| {
+                object.push(value);
+            },
+            || {
+                let object = match self.get_inner_object(array_id) {
+                    Some(object) => object,
+                    None => return,
+                };
+                object.push(v1);
+            },
+        )
+    }
+
+    pub fn array_get_index(&self, array_id: u64, index: usize) -> Option<Something> {
+        with_local_object(
+            array_id,
+            |object| object.get_index(index),
+            || self.get_inner_object(array_id)?.get_index(index),
         )
     }
 

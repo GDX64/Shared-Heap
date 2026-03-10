@@ -117,13 +117,15 @@ pub fn array_get_length(array_id: u64) -> i32 {
 }
 
 #[wasm_bindgen]
-pub fn array_set_length(array_id: u64, length: i32) {
-    GLOBALS.array_set_length(array_id, length.max(0) as usize);
+pub fn array_push(array_id: u64) {
+    if let Some(value) = pop_from_something_stack() {
+        GLOBALS.array_push(array_id, value);
+    }
 }
 
 #[wasm_bindgen]
-pub fn array_get_index(array_id: u64, index: u32) {
-    if let Some(obj) = GLOBALS.array_get_index(array_id, index as usize) {
+pub fn array_pop(array_id: u64) {
+    if let Some(obj) = GLOBALS.array_pop(array_id) {
         push_to_js_stack(&obj, &GLOBALS);
     }
 }
@@ -136,8 +138,10 @@ pub fn array_set_index(array_id: u64, index: u32) {
 }
 
 #[wasm_bindgen]
-pub fn array_delete_index(array_id: u64, index: u32) {
-    GLOBALS.array_delete_index(array_id, index as usize);
+pub fn array_get_index(array_id: u64, index: u32) {
+    if let Some(obj) = GLOBALS.array_get_index(array_id, index as usize) {
+        push_to_js_stack(&obj, &GLOBALS);
+    }
 }
 
 #[wasm_bindgen]

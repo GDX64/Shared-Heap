@@ -14,11 +14,13 @@ export class SharedArray<T = any> {
   }
 
   get length(): number {
-    return (this.store as any)["arrayGetLength"](this.heapID);
+    return this.store["arrayGetLength"](this.heapID);
   }
 
-  set length(value: number) {
-    (this.store as any)["arraySetLength"](this.heapID, value);
+  set length(_value: number) {
+    throw new Error(
+      "Length property is read-only. Use push/pop/shift/unshift/splice to modify the array.",
+    );
   }
 
   takeInitialItems(): T[] {
@@ -28,7 +30,7 @@ export class SharedArray<T = any> {
   }
 
   get(index: number): any {
-    return (this.store as any)["arrayGet"](this.heapID, index);
+    return this.store["arrayGet"](this.heapID, index);
   }
 
   at(index: number): any {
@@ -41,15 +43,15 @@ export class SharedArray<T = any> {
   }
 
   set(index: number, value: any): void {
-    (this.store as any)["setArrayElement"](this.heapID, index, value);
+    this.store["setArrayElement"](this.heapID, index, value);
   }
 
-  push(...items: any[]): number {
-    return (this.store as any)["arrayPush"](this.heapID, ...items);
+  push(item: T) {
+    this.store["arrayPush"](this.heapID, item);
   }
 
-  pop(): any {
-    return (this.store as any)["arrayPop"](this.heapID);
+  pop(): T {
+    return this.store["arrayPop"](this.heapID) as T;
   }
 
   shift(): any {

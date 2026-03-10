@@ -166,10 +166,6 @@ export class SharedHeap {
     return this.mod.array_get_length(objID);
   }
 
-  private arraySetLength(objID: bigint, length: number): void {
-    this.mod.array_set_length(objID, length);
-  }
-
   private setArrayElement(objID: bigint, index: number, value: unknown): void {
     this.pushSomething(value);
     this.mod.array_set_index(objID, index);
@@ -180,26 +176,14 @@ export class SharedHeap {
     return this.decodePoppedValue();
   }
 
-  private arrayPush(objID: bigint, ...items: unknown[]): number {
-    let length = this.arrayGetLength(objID);
-    for (const item of items) {
-      this.pushSomething(item);
-      this.mod.array_set_index(objID, length);
-      length += 1;
-    }
-    this.arraySetLength(objID, length);
-    return length;
+  private arrayPush(objID: bigint, item: unknown) {
+    this.pushSomething(item);
+    return this.mod.array_push(objID);
   }
 
   private arrayPop(objID: bigint): Something["value"] | undefined {
-    const length = this.arrayGetLength(objID);
-    if (length === 0) {
-      return undefined;
-    }
-    const lastIndex = length - 1;
-    const value = this.arrayGet(objID, lastIndex);
-    this.arraySetLength(objID, lastIndex);
-    return value;
+    this.mod.array_pop(objID);
+    return this.decodePoppedValue() ?? undefined;
   }
 
   private decodePoppedValue(): Something["value"] {

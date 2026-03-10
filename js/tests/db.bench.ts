@@ -3,6 +3,7 @@ import { SharedHeap } from "../src/AnyStore";
 import { bench, describe } from "vitest";
 import { reactive } from "vue";
 import { BinView } from "../src/BinView";
+import { SharedArray } from "../src/SharedArray";
 
 setupFetch();
 
@@ -18,12 +19,20 @@ describe("simple counter increment", () => {
   const counter = db.createObject({
     value: 0,
     view: BinViewConstructor.empty(),
+    arr: SharedArray.from([0]),
   });
   const view = counter.view;
   view.counter = 0;
   bench("view counting", () => {
     for (let i = 0; i < N; i++) {
       view.counter += 1;
+    }
+  });
+
+  const arr = counter.arr;
+  bench("array counting", () => {
+    for (let i = 0; i < N; i++) {
+      arr.set(0, arr.get(0) + 1);
     }
   });
 
@@ -85,10 +94,10 @@ describe("user record updates", () => {
 
 // Array operations
 describe("array push operations", () => {
-  const list = db.createObject({ items: <number[]>[] });
+  const list = db.createObject({ items: SharedArray.from([]) });
 
   bench("shared heap", () => {
-    list.items = [];
+    list.items = SharedArray.from([]);
     for (let i = 0; i < 1000; i++) {
       list.items.push(i);
     }

@@ -119,25 +119,23 @@ impl Object {
         }
     }
 
+    pub fn set_index(&self, index: usize, value: Something) {
+        let mut inner = self.lock_inner();
+        if let HeapObj::Array(arr) = &mut *inner {
+            if let Some(elem) = arr.get_mut(index) {
+                *elem = value;
+            }
+        } else {
+            panic!("Cannot set index on non-array object");
+        }
+    }
+
     pub fn get_index(&self, index: usize) -> Option<Something> {
         let inner = self.lock_inner();
         if let HeapObj::Array(arr) = &*inner {
             return arr.get(index).cloned();
         } else {
             panic!("Cannot get index from non-array object");
-        }
-    }
-
-    pub fn set_index(&self, index: usize, value: Something) {
-        let mut inner = self.lock_inner();
-        if let HeapObj::Array(arr) = &mut *inner {
-            if let Some(slot) = arr.get_mut(index) {
-                *slot = value;
-            } else {
-                panic!("Cannot set out-of-bounds index on array object");
-            }
-        } else {
-            panic!("Cannot set index on non-array object");
         }
     }
 
@@ -148,25 +146,6 @@ impl Object {
         } else {
             panic!("Cannot get length of non-array object");
         }
-    }
-
-    pub fn set_len(&self, target_len: usize) {
-        let current_len = self.len();
-        if target_len > current_len {
-            for _ in current_len..target_len {
-                self.push(Something::Null);
-            }
-        } else if target_len < current_len {
-            for _ in target_len..current_len {
-                self.pop();
-            }
-        }
-    }
-
-    pub fn delete_index(&self, index: usize) -> Option<Something> {
-        let previous = self.get_index(index)?;
-        self.set_index(index, Something::Null);
-        Some(previous)
     }
 
     pub fn set_property(&self, key: u64, value: Something) -> Option<Something> {
