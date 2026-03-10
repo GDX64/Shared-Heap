@@ -2,7 +2,7 @@ import initModule, {
   get_bin_view_schema,
   type InitOutput,
 } from "../pkg/shared_heap";
-import type { BinView } from "./BinView";
+import { BinView } from "./BinView";
 import { fastHash } from "./hash";
 import {
   popObjectFromStack,
@@ -219,10 +219,10 @@ export class SharedHeap {
   }
 
   private pushSomething(value: unknown): void {
-    if (isBinViewDefinition(value)) {
+    if (isBinViewInst(value)) {
       const binViewId = this.mod.create_bin_view(
-        value.schemaKey,
-        value.constructor.size(),
+        value.schemaKey(),
+        value.size(),
       );
       this.mod.something_push_ref_to_stack(binViewId);
       return;
@@ -407,16 +407,6 @@ function isBinView(objID: bigint): boolean {
   return (objID & 0b11n) === 0b10n;
 }
 
-type BinViewDefinition = {
-  type: "binview";
-  constructor: typeof BinView;
-  schemaKey: bigint;
-};
-
-function isBinViewDefinition(value: unknown): value is BinViewDefinition {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const maybe = value as Partial<BinViewDefinition>;
-  return maybe.type === "binview";
+function isBinViewInst(value: unknown): value is BinView {
+  return value instanceof BinView;
 }

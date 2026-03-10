@@ -12,7 +12,7 @@ describe("bin view", async () => {
   const db = await SharedHeap.create();
   db.registerView(BinViewConstructor);
   const obj = db.createObject({
-    view: BinViewConstructor.definition(),
+    view: BinViewConstructor.empty(),
   });
   const N = 10_000;
   const view = obj.view;

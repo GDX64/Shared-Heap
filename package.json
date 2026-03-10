@@ -46,7 +46,9 @@
   "overrides": {
     "vite": "npm:rolldown-vite@7.2.5"
   },
-  "dependencies": {},
+  "dependencies": {
+    "vue": "^3.5.30"
+  },
   "keywords": [
     "storage",
     "embedded",

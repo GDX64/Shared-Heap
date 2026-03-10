@@ -16,8 +16,8 @@ describe("bin view", async () => {
     db.registerView(view);
 
     const obj = db.createObject({
-      view: view.definition(),
-      another: view.definition(),
+      view: view.empty(),
+      another: view.empty(),
     });
 
     obj.view.a = 10.5;
