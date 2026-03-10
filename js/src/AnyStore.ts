@@ -103,12 +103,16 @@ export class SharedHeap {
 
   createObject<T>(initial: T): T & { heapID: bigint } {
     let id;
-    if (Array.isArray(initial)) {
+    if (isSharedArrayInst(initial)) {
       id = this.mod.create_array();
-    } else {
-      id = this.mod.create_object();
+      const obj = this.createHandlerForID(id);
+      for (const val of initial.takeInitialItems()) {
+        obj.push(val);
+      }
+      return obj;
     }
-    const obj = this.createProxyForID(id);
+    id = this.mod.create_object();
+    const obj = this.createHandlerForID(id);
     for (const key in initial) {
       const value = (initial as any)[key];
       obj[key] = value;
@@ -116,10 +120,10 @@ export class SharedHeap {
     return obj;
   }
 
-  private createProxyForID(id: bigint): any {
+  private createHandlerForID(id: bigint): any {
     let obj;
     if (isArrayID(id)) {
-      obj = createProxyForArray(id, this);
+      obj = new SharedArray(id, this);
     } else if (isBinView(id)) {
       const schemaKey = get_bin_view_schema(id);
       const viewPtr = this.mod.get_bin_view_ptr(id);
@@ -145,7 +149,7 @@ export class SharedHeap {
     if (!exists) {
       return null;
     }
-    return this.createProxyForID(id);
+    return this.createHandlerForID(id);
   }
 
   private getObjProperty(objID: bigint, prop: bigint): Something["value"] {
@@ -220,8 +224,8 @@ export class SharedHeap {
     if (isSharedArrayInst(value)) {
       // If it's a SharedArray marker (heapID 0n), create a new array
       if (value.heapID === 0n) {
-        const arrayId = this.mod.create_array();
-        this.mod.something_push_ref_to_stack(arrayId);
+        const arr = this.createObject(value);
+        this.mod.something_push_ref_to_stack(arr.heapID);
         return;
       }
       // Otherwise, push the existing array reference
@@ -359,62 +363,6 @@ function createProxyForObject(objID: bigint, store: SharedHeap): any {
   return new Proxy({ heapID: objID, __store: store }, proxySchema);
 }
 
-function createProxyForArray(objID: bigint, store: SharedHeap): any {
-  const array = new SharedArray(objID, store);
-
-  return new Proxy(array, {
-    get(target: SharedArray, prop: string | symbol): any {
-      if (typeof prop === "symbol") {
-        return (target as any)[prop];
-      }
-
-      // Handle built-in properties and methods
-      if (prop === "heapID" || prop === "__store" || prop === "length") {
-        return (target as any)[prop];
-      }
-
-      // Handle methods
-      if (prop in target && typeof (target as any)[prop] === "function") {
-        return (target as any)[prop].bind(target);
-      }
-
-      // Handle numeric indices
-      const index = Number(prop);
-      if (!isNaN(index) && index >= 0 && Number.isInteger(index)) {
-        return target.get(index);
-      }
-
-      return undefined;
-    },
-    set(target: SharedArray, prop: string | symbol, value: any): boolean {
-      if (typeof prop === "symbol") {
-        return false;
-      }
-
-      // Handle length setter
-      if (prop === "length") {
-        target.length = value;
-        return true;
-      }
-
-      // Handle numeric indices
-      const index = Number(prop);
-      if (!isNaN(index) && index >= 0 && Number.isInteger(index)) {
-        target.set(index, value);
-        return true;
-      }
-
-      return false;
-    },
-    has(target: SharedArray, p: string | symbol): boolean {
-      if (typeof p === "symbol") {
-        return false;
-      }
-      return p === "heapID";
-    },
-  });
-}
-
 function isArrayID(objID: bigint): boolean {
   return (objID & 0b1n) !== 0n;
 }
@@ -427,15 +375,6 @@ function isBinViewInst(value: unknown): value is BinView {
   return value instanceof BinView;
 }
 
-function isSharedArrayInst(
-  value: unknown,
-): value is import("./SharedArray").SharedArray {
-  return (
-    value != null &&
-    typeof value === "object" &&
-    "heapID" in value &&
-    "__store" in value &&
-    "push" in value &&
-    "pop" in value
-  );
+function isSharedArrayInst(value: unknown): value is SharedArray {
+  return value instanceof SharedArray;
 }

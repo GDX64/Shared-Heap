@@ -1,26 +1,34 @@
 import type { SharedHeap } from "./AnyStore";
 
-export class SharedArray {
+export class SharedArray<T = any> {
+  private initialItems: T[] | null = null;
   constructor(
     public readonly heapID: bigint,
-    private __store: SharedHeap,
+    private store: SharedHeap,
   ) {}
 
-  static empty<T = any>(): SharedArray {
-    // Return a marker instance with heapID 0n to indicate this should be an array
-    return new SharedArray(0n, null as any);
+  static from<T>(arr: T[]): SharedArray<T> {
+    const sharedArray = new SharedArray(0n, null as any);
+    sharedArray.initialItems = arr;
+    return sharedArray;
   }
 
   get length(): number {
-    return (this.__store as any)["arrayGetLength"](this.heapID);
+    return (this.store as any)["arrayGetLength"](this.heapID);
   }
 
   set length(value: number) {
-    (this.__store as any)["arraySetLength"](this.heapID, value);
+    (this.store as any)["arraySetLength"](this.heapID, value);
+  }
+
+  takeInitialItems(): T[] {
+    const result = this.initialItems;
+    this.initialItems = null;
+    return result ?? [];
   }
 
   get(index: number): any {
-    return (this.__store as any)["arrayGet"](this.heapID, index);
+    return (this.store as any)["arrayGet"](this.heapID, index);
   }
 
   at(index: number): any {
@@ -33,15 +41,15 @@ export class SharedArray {
   }
 
   set(index: number, value: any): void {
-    (this.__store as any)["setArrayElement"](this.heapID, index, value);
+    (this.store as any)["setArrayElement"](this.heapID, index, value);
   }
 
   push(...items: any[]): number {
-    return (this.__store as any)["arrayPush"](this.heapID, ...items);
+    return (this.store as any)["arrayPush"](this.heapID, ...items);
   }
 
   pop(): any {
-    return (this.__store as any)["arrayPop"](this.heapID);
+    return (this.store as any)["arrayPop"](this.heapID);
   }
 
   shift(): any {
@@ -166,51 +174,42 @@ export class SharedArray {
     return this.indexOf(searchElement, fromIndex) !== -1;
   }
 
-  forEach(
-    callback: (value: any, index: number, array: SharedArray) => void,
-    thisArg?: any,
-  ): void {
+  forEach(callback: (value: any, index: number) => void, thisArg?: any): void {
     const length = this.length;
     for (let i = 0; i < length; i++) {
-      callback.call(thisArg, this.get(i), i, this);
+      callback.call(thisArg, this.get(i), i);
     }
   }
 
-  map<T>(
-    callback: (value: any, index: number, array: SharedArray) => T,
-    thisArg?: any,
-  ): T[] {
+  map<T>(callback: (value: any, index: number) => T, thisArg?: any): T[] {
     const length = this.length;
     const result: T[] = [];
     for (let i = 0; i < length; i++) {
-      result.push(callback.call(thisArg, this.get(i), i, this));
+      result.push(callback.call(thisArg, this.get(i), i));
     }
     return result;
   }
 
   filter(
-    callback: (value: any, index: number, array: SharedArray) => boolean,
+    callback: (value: any, index: number) => boolean,
     thisArg?: any,
   ): any[] {
     const length = this.length;
     const result: any[] = [];
     for (let i = 0; i < length; i++) {
       const value = this.get(i);
-      if (callback.call(thisArg, value, i, this)) {
+      if (callback.call(thisArg, value, i)) {
         result.push(value);
       }
     }
     return result;
   }
 
-  find(
-    callback: (value: any, index: number, array: SharedArray) => boolean,
-    thisArg?: any,
-  ): any {
+  find(callback: (value: any, index: number) => boolean, thisArg?: any): any {
     const length = this.length;
     for (let i = 0; i < length; i++) {
       const value = this.get(i);
-      if (callback.call(thisArg, value, i, this)) {
+      if (callback.call(thisArg, value, i)) {
         return value;
       }
     }
@@ -218,12 +217,12 @@ export class SharedArray {
   }
 
   findIndex(
-    callback: (value: any, index: number, array: SharedArray) => boolean,
+    callback: (value: any, index: number) => boolean,
     thisArg?: any,
   ): number {
     const length = this.length;
     for (let i = 0; i < length; i++) {
-      if (callback.call(thisArg, this.get(i), i, this)) {
+      if (callback.call(thisArg, this.get(i), i)) {
         return i;
       }
     }
@@ -231,12 +230,12 @@ export class SharedArray {
   }
 
   every(
-    callback: (value: any, index: number, array: SharedArray) => boolean,
+    callback: (value: any, index: number) => boolean,
     thisArg?: any,
   ): boolean {
     const length = this.length;
     for (let i = 0; i < length; i++) {
-      if (!callback.call(thisArg, this.get(i), i, this)) {
+      if (!callback.call(thisArg, this.get(i), i)) {
         return false;
       }
     }
@@ -244,12 +243,12 @@ export class SharedArray {
   }
 
   some(
-    callback: (value: any, index: number, array: SharedArray) => boolean,
+    callback: (value: any, index: number) => boolean,
     thisArg?: any,
   ): boolean {
     const length = this.length;
     for (let i = 0; i < length; i++) {
-      if (callback.call(thisArg, this.get(i), i, this)) {
+      if (callback.call(thisArg, this.get(i), i)) {
         return true;
       }
     }
@@ -257,12 +256,7 @@ export class SharedArray {
   }
 
   reduce<T>(
-    callback: (
-      previousValue: T,
-      currentValue: any,
-      currentIndex: number,
-      array: SharedArray,
-    ) => T,
+    callback: (previousValue: T, currentValue: any, currentIndex: number) => T,
     initialValue?: T,
   ): T {
     const length = this.length;
@@ -280,7 +274,7 @@ export class SharedArray {
     }
 
     for (let i = startIndex; i < length; i++) {
-      accumulator = callback(accumulator, this.get(i), i, this);
+      accumulator = callback(accumulator, this.get(i), i);
     }
 
     return accumulator;

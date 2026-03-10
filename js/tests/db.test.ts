@@ -41,37 +41,35 @@ describe("hello", () => {
 
   test("arrays", async () => {
     const db = await SharedHeap.create();
-    const obj = db.createObject({ arr: [1] });
-
-    expect(obj.arr.at(0)).toBe(1);
-    expect(obj.arr.at(1)).toBeNullable();
+    const obj = db.createObject({ arr: SharedArray.from([1]) });
+    expect(obj.arr.get(0)).toBe(1);
+    expect(obj.arr.get(1)).toBeNullable();
     expect(obj.arr.length).toBe(1);
 
     obj.arr.push(2);
-    expect(obj.arr.at(1)).toBe(2);
+    expect(obj.arr.get(1)).toBe(2);
     expect(obj.arr.length).toBe(2);
     obj.arr.pop();
-    expect(obj.arr.at(1)).toBeNullable();
+    expect(obj.arr.get(1)).toBeNullable();
     expect(obj.arr.length).toBe(1);
   });
 
   test("array object", async () => {
     const db = await SharedHeap.create();
     const obj = db.createObject({
-      arr: [{ name: "hello", age: 30 }],
+      arr: SharedArray.from([{ name: "hello", age: 30 }]),
     });
-
     expect(obj.arr instanceof SharedArray).toBe(true);
 
-    expect(obj.arr.at(0)?.name).toBe("hello");
-    expect(obj.arr.at(0)?.age).toBe(30);
+    expect(obj.arr.get(0)?.name).toBe("hello");
+    expect(obj.arr.get(0)?.age).toBe(30);
 
     obj.arr.push({ name: "world", age: 25 });
-    expect(obj.arr.at(1)?.name).toBe("world");
-    expect(obj.arr.at(1)?.age).toBe(25);
+    expect(obj.arr.get(1)?.name).toBe("world");
+    expect(obj.arr.get(1)?.age).toBe(25);
 
     obj.arr.pop();
-    expect(obj.arr.at(1)).toBeNullable();
+    expect(obj.arr.get(1)).toBeNullable();
   });
 
   test("force drop", async () => {
