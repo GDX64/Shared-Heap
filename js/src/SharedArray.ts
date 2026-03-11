@@ -195,7 +195,7 @@ export class SharedArray<T = any> {
     return this.indexOf(searchElement, fromIndex) !== -1;
   }
 
-  forEach(callback: (value: any, index: number) => void, thisArg?: any): void {
+  forEach(callback: (value: T, index: number) => void, thisArg?: any): void {
     const length = this.length;
     for (let i = 0; i < length; i++) {
       callback.call(thisArg, this.get(i), i);

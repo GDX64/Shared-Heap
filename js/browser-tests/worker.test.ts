@@ -1,30 +1,94 @@
 import { SharedHeap } from "../src/AnyStore";
 import { test, describe, expect } from "vitest";
 import Worker from "./worker?worker";
+import { SharedArray } from "../src/SharedArray";
 
 describe("worker window", async () => {
   const db = await SharedHeap.create();
 
-  test("worker", async () => {
-    const counter = db.createObject({ value: 0 });
-    const N = 10_000;
-    const N_WORKERS = 4;
-    async function createWorker() {
-      const worker = new Worker();
-      const workerData = db.createWorker();
-      worker.postMessage({
-        counterID: SharedHeap.getIDOfProxy(counter),
-        workerData,
-        N,
-      });
-      await new Promise((resolve) => {
+  async function runWorker(payload: {
+    rootID: bigint;
+    iterations: number;
+    testCase: string;
+  }): Promise<void> {
+    const worker = new Worker();
+    const workerData = db.createWorker();
+
+    try {
+      await new Promise<void>((resolve) => {
         worker.onmessage = (event) => {
           resolve(event.data);
         };
+        worker.postMessage({
+          ...payload,
+          workerData,
+        });
       });
+    } finally {
+      worker.terminate();
     }
+  }
 
-    await Promise.all(Array.from({ length: N_WORKERS }, createWorker));
-    expect(counter.value).toBe(N * N_WORKERS);
+  test("parallel workers update primitive properties on same object", async () => {
+    const root = db.createObject({ foo: 10, bar: 10.1, baz: "init" });
+    const rootID = SharedHeap.getIDOfProxy(root)!;
+    const iterations = 3_000;
+    const N_WORKERS = 4;
+
+    await Promise.all(
+      Array.from({ length: N_WORKERS }, () =>
+        runWorker({ rootID, iterations, testCase: "db-primitives" }),
+      ),
+    );
+
+    expect(root.foo).toBe(10 + iterations * N_WORKERS);
+    expect(root.bar).toBe(10.1 + iterations * N_WORKERS * 0.5);
+    expect(root.baz).toBe("hello");
+  });
+
+  test("parallel workers update nested object properties", async () => {
+    const root = db.createObject({
+      foo: {
+        bar: 10,
+        baz: { qux: "start" },
+      },
+    });
+    const rootID = SharedHeap.getIDOfProxy(root)!;
+    const iterations = 2_000;
+    const N_WORKERS = 5;
+
+    await Promise.all(
+      Array.from({ length: N_WORKERS }, () =>
+        runWorker({ rootID, iterations, testCase: "db-recursive" }),
+      ),
+    );
+
+    expect(root.foo.bar).toBe(10 + iterations * N_WORKERS);
+    expect(root.foo.baz.qux).toBe("world");
+  });
+
+  test("parallel workers push to same shared array", async () => {
+    const root = db.createObject({
+      arr: SharedArray.from([{ name: "worker", age: 30 }]),
+    });
+    const rootID = SharedHeap.getIDOfProxy(root)!;
+    const iterations = 1_500;
+    const N_WORKERS = 4;
+
+    await Promise.all(
+      Array.from({ length: N_WORKERS }, () =>
+        runWorker({ rootID, iterations, testCase: "db-array-push" }),
+      ),
+    );
+
+    expect(root.arr.length).toBe(1 + iterations * N_WORKERS);
+    const allCorrect = root.arr.every((item) => {
+      return item.name === "worker";
+    });
+    expect(allCorrect).toBe(true);
+
+    const last = root.arr.get(root.arr.length - 1);
+    expect(last?.name).toBe("worker");
+    expect(last?.age).toBe(25);
   });
 });
