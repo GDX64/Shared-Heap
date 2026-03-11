@@ -69,7 +69,7 @@ describe("worker window", async () => {
 
   test("parallel workers push to same shared array", async () => {
     const root = db.createObject({
-      arr: SharedArray.from([{ name: "worker", age: 30 }]),
+      arr: SharedArray.from([{ name: "worker0" }]),
     });
     const rootID = SharedHeap.getIDOfProxy(root)!;
     const iterations = 1_500;
@@ -82,13 +82,9 @@ describe("worker window", async () => {
     );
 
     expect(root.arr.length).toBe(1 + iterations * N_WORKERS);
-    const allCorrect = root.arr.every((item) => {
-      return item.name === "worker";
+    const allCorrect = root.arr.every((item, index) => {
+      return item.name === "worker" + index;
     });
     expect(allCorrect).toBe(true);
-
-    const last = root.arr.get(root.arr.length - 1);
-    expect(last?.name).toBe("worker");
-    expect(last?.age).toBe(25);
   });
 });

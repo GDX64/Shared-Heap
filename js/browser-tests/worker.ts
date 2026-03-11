@@ -1,4 +1,5 @@
 import { SharedHeap } from "../src/AnyStore";
+import type { SharedArray } from "../src/SharedArray";
 
 self.onmessage = async (event) => {
   if (event.data.testCase === "db-primitives") {
@@ -29,8 +30,8 @@ async function dbPrimitivesTest(event: MessageEvent) {
     db.withLockOn(root, () => {
       root.foo += 1;
       root.bar += 0.5;
-      root.baz = "hello";
     });
+    root.baz = "hello";
   }
 
   self.postMessage("done");
@@ -47,8 +48,8 @@ async function dbRecursiveTest(event: MessageEvent) {
   for (let i = 0; i < iterations; i++) {
     db.withLockOn(root, () => {
       root.foo.bar += 1;
-      root.foo.baz.qux = "world";
     });
+    root.foo.baz.qux = "world";
   }
 
   self.postMessage("done");
@@ -59,14 +60,14 @@ async function dbArrayPushTest(event: MessageEvent) {
 
   const db = await SharedHeap.fromModule(workerData);
   const root = db.getObject<{
-    arr: {
-      length: number;
-      push: (item: { name: string; age: number }) => void;
-    };
+    arr: SharedArray<{ name: string }>;
   }>(rootID)!;
 
   for (let i = 0; i < iterations; i++) {
-    root.arr.push({ name: "worker", age: 25 });
+    db.withLockOn(root.arr, () => {
+      const len = root.arr.length;
+      root.arr.push({ name: "worker" + len });
+    });
   }
 
   self.postMessage("done");
