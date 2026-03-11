@@ -67,7 +67,8 @@ export class SharedArray<T = any> {
       this.set(i - 1, this.get(i));
     }
 
-    this.length = length - 1;
+    // Remove the last element (which is now a duplicate)
+    this.pop();
     return firstElement;
   }
 
@@ -78,7 +79,11 @@ export class SharedArray<T = any> {
     }
 
     const oldLength = this.length;
-    const newLength = oldLength + itemCount;
+
+    // Expand the array by pushing placeholders
+    for (let i = 0; i < itemCount; i++) {
+      this.push(null as T);
+    }
 
     // Shift existing elements up
     for (let i = oldLength - 1; i >= 0; i--) {
@@ -90,8 +95,7 @@ export class SharedArray<T = any> {
       this.set(i, items[i]);
     }
 
-    this.length = newLength;
-    return newLength;
+    return this.length;
   }
 
   slice(start?: number, end?: number): any[] {
@@ -134,6 +138,14 @@ export class SharedArray<T = any> {
     const itemCount = items.length;
     const delta = itemCount - actualDeleteCount;
 
+    // Adjust the array length first if growing
+    if (delta > 0) {
+      // Growing: push placeholders
+      for (let i = 0; i < delta; i++) {
+        this.push(null as T);
+      }
+    }
+
     if (delta < 0) {
       // Shift elements down
       for (let i = actualStart + actualDeleteCount; i < length; i++) {
@@ -151,7 +163,14 @@ export class SharedArray<T = any> {
       this.set(actualStart + i, items[i]);
     }
 
-    this.length = length + delta;
+    // Shrink if needed
+    if (delta < 0) {
+      // Shrinking: pop excess elements
+      for (let i = 0; i < -delta; i++) {
+        this.pop();
+      }
+    }
+
     return deleted;
   }
 
@@ -394,6 +413,21 @@ export class SharedArray<T = any> {
   }
 
   values() {
-    return this[Symbol.iterator]();
+    let index = 0;
+    const length = this.length;
+    const self = this;
+
+    return {
+      [Symbol.iterator]() {
+        return this;
+      },
+      next(): IteratorResult<any> {
+        if (index < length) {
+          return { value: self.get(index++), done: false };
+        } else {
+          return { value: undefined as any, done: true };
+        }
+      },
+    };
   }
 }
