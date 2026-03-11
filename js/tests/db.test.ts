@@ -142,4 +142,96 @@ describe("hello", () => {
     db.drop(obj);
     expect(db.getReferenceCount(childID)).toBe(0);
   });
+
+  test("worker mode mirrors updates across module instances", async () => {
+    const db = await SharedHeap.create();
+    const counter = db.createObject({ value: 1 });
+    const counterID = SharedHeap.getIDOfProxy(counter)!;
+
+    const workerData = db.createWorker();
+    const dbFromWorker = await SharedHeap.fromModule(workerData);
+    const workerCounter = dbFromWorker.getObject<{ value: number }>(counterID)!;
+
+    workerCounter.value += 4;
+    expect(counter.value).toBe(5);
+
+    counter.value += 3;
+    expect(workerCounter.value).toBe(8);
+  });
+
+  test("createWorker increments worker id", async () => {
+    const db = await SharedHeap.create();
+    const first = db.createWorker();
+    const second = db.createWorker();
+
+    expect(first.workerID).toBe(1);
+    expect(second.workerID).toBe(2);
+    expect(first.memory).toBe(second.memory);
+  });
+
+  test("withLockOn executes callback and returns value", async () => {
+    const db = await SharedHeap.create();
+    const counter = db.createObject({ value: 10 });
+
+    const result = db.withLockOn(counter, () => {
+      counter.value += 2;
+      return counter.value;
+    });
+
+    expect(result).toBe(12);
+    expect(counter.value).toBe(12);
+  });
+
+  test("withLockOn rejects non-proxy values", async () => {
+    const db = await SharedHeap.create();
+
+    expect(() => db.withLockOn({ plain: true }, () => 1)).toThrow(
+      "Can only lock shared-heap proxy objects",
+    );
+  });
+
+  test("getObject returns null for dropped id", async () => {
+    const db = await SharedHeap.create();
+    const obj = db.createObject({ alive: true });
+    const id = SharedHeap.getIDOfProxy(obj)!;
+
+    db.drop(obj);
+
+    expect(db.getObject(id)).toBeNull();
+  });
+
+  test("static helpers for proxy detection", async () => {
+    const db = await SharedHeap.create();
+    const obj = db.createObject({ foo: 1 });
+
+    expect(SharedHeap.isProxy(obj)).toBe(true);
+    expect(SharedHeap.getIDOfProxy(obj)).toBeTypeOf("bigint");
+
+    expect(SharedHeap.isProxy({})).toBe(false);
+    expect(SharedHeap.getIDOfProxy({})).toBeNull();
+  });
+
+  test("somethingFromValue maps supported types", () => {
+    expect(SharedHeap.somethingFromValue(10)).toEqual({
+      tag: "i32",
+      value: 10,
+    });
+    expect(SharedHeap.somethingFromValue(10.5)).toEqual({
+      tag: "f64",
+      value: 10.5,
+    });
+    expect(SharedHeap.somethingFromValue("hello")).toEqual({
+      tag: "string",
+      value: "hello",
+    });
+    expect(SharedHeap.somethingFromValue(null)).toEqual({
+      tag: "null",
+      value: null,
+    });
+    expect(SharedHeap.somethingFromValue(new Uint8Array([1, 2]))).toEqual({
+      tag: "blob",
+      value: new Uint8Array([1, 2]),
+    });
+    expect(SharedHeap.somethingFromValue({ nope: true })).toBeNull();
+  });
 });
