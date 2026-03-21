@@ -136,7 +136,7 @@ describe("SharedArray", () => {
 
     test("unshift on empty array", async () => {
       const db = await SharedHeap.create();
-      const obj = db.createObject({ arr: SharedArray.from([]) });
+      const obj = db.createObject({ arr: SharedArray.from<number>([]) });
       obj.arr.unshift(1, 2, 3);
       expect(obj.arr.length).toBe(3);
       expect(obj.arr.get(0)).toBe(1);
@@ -388,7 +388,7 @@ describe("SharedArray", () => {
 
     test("reduce throws on empty array without initial value", async () => {
       const db = await SharedHeap.create();
-      const obj = db.createObject({ arr: SharedArray.from([]) });
+      const obj = db.createObject({ arr: SharedArray.from<number>([]) });
       expect(() => {
         obj.arr.reduce((acc: number, val: number) => acc + val);
       }).toThrow("Reduce of empty array with no initial value");
@@ -545,7 +545,8 @@ describe("SharedArray", () => {
     test("array of mixed types", async () => {
       const db = await SharedHeap.create();
       const obj = db.createObject({
-        arr: SharedArray.from([1, "two", { three: 3 }, null]),
+        //we cant correctly type tuples yet
+        arr: SharedArray.from<any>([1, "two", { three: 3 }, null]),
       });
       expect(obj.arr.get(0)).toBe(1);
       expect(obj.arr.get(1)).toBe("two");

@@ -7,9 +7,9 @@ export class SharedArray<T = any> {
     private store: SharedHeap,
   ) {}
 
-  static from<T>(arr: T[]): SharedArray<T> {
+  static from<T>(arr: readonly T[]): SharedArray<T> {
     const sharedArray = new SharedArray(0n, null as any);
-    sharedArray.initialItems = arr;
+    sharedArray.initialItems = [...arr];
     return sharedArray;
   }
 
@@ -29,11 +29,11 @@ export class SharedArray<T = any> {
     return result ?? [];
   }
 
-  get(index: number): any {
-    return this.store["arrayGet"](this.heapID, index);
+  get(index: number): T {
+    return this.store["arrayGet"](this.heapID, index) as T;
   }
 
-  at(index: number): any {
+  at(index: number): T | undefined {
     const length = this.length;
     const actualIndex = index < 0 ? length + index : index;
     if (actualIndex < 0 || actualIndex >= length) {
@@ -42,7 +42,7 @@ export class SharedArray<T = any> {
     return this.get(actualIndex);
   }
 
-  set(index: number, value: any): void {
+  set(index: number, value: T): void {
     this.store["setArrayElement"](this.heapID, index, value);
   }
 
@@ -54,7 +54,7 @@ export class SharedArray<T = any> {
     return this.store["arrayPop"](this.heapID) as T;
   }
 
-  shift(): any {
+  shift(): T | undefined {
     const length = this.length;
     if (length === 0) {
       return undefined;
@@ -72,7 +72,7 @@ export class SharedArray<T = any> {
     return firstElement;
   }
 
-  unshift(...items: any[]): number {
+  unshift(...items: T[]): number {
     const itemCount = items.length;
     if (itemCount === 0) {
       return this.length;
@@ -98,7 +98,7 @@ export class SharedArray<T = any> {
     return this.length;
   }
 
-  slice(start?: number, end?: number): any[] {
+  slice(start?: number, end?: number): T[] {
     const length = this.length;
     const actualStart =
       start === undefined
@@ -113,14 +113,14 @@ export class SharedArray<T = any> {
           ? Math.max(0, length + end)
           : Math.min(end, length);
 
-    const result: any[] = [];
+    const result: T[] = [];
     for (let i = actualStart; i < actualEnd; i++) {
       result.push(this.get(i));
     }
     return result;
   }
 
-  splice(start: number, deleteCount?: number, ...items: any[]): any[] {
+  splice(start: number, deleteCount?: number, ...items: T[]): T[] {
     const length = this.length;
     const actualStart =
       start < 0 ? Math.max(0, length + start) : Math.min(start, length);
@@ -130,7 +130,7 @@ export class SharedArray<T = any> {
         : Math.max(0, Math.min(deleteCount, length - actualStart));
 
     // Store deleted elements
-    const deleted: any[] = [];
+    const deleted: T[] = [];
     for (let i = 0; i < actualDeleteCount; i++) {
       deleted.push(this.get(actualStart + i));
     }
@@ -174,7 +174,7 @@ export class SharedArray<T = any> {
     return deleted;
   }
 
-  indexOf(searchElement: any, fromIndex?: number): number {
+  indexOf(searchElement: T, fromIndex?: number): number {
     const length = this.length;
     const start =
       fromIndex === undefined
@@ -191,46 +191,71 @@ export class SharedArray<T = any> {
     return -1;
   }
 
-  includes(searchElement: any, fromIndex?: number): boolean {
+  includes(searchElement: T, fromIndex?: number): boolean {
     return this.indexOf(searchElement, fromIndex) !== -1;
   }
 
-  forEach(callback: (value: T, index: number) => void, thisArg?: any): void {
+  forEach(
+    callback: (value: T, index: number, array: SharedArray<T>) => void,
+    thisArg?: unknown,
+  ): void {
     const length = this.length;
     for (let i = 0; i < length; i++) {
-      callback.call(thisArg, this.get(i), i);
+      callback.call(thisArg, this.get(i), i, this);
     }
   }
 
-  map<T>(callback: (value: any, index: number) => T, thisArg?: any): T[] {
+  map<U>(
+    callback: (value: T, index: number, array: SharedArray<T>) => U,
+    thisArg?: unknown,
+  ): U[] {
     const length = this.length;
-    const result: T[] = [];
+    const result: U[] = [];
     for (let i = 0; i < length; i++) {
-      result.push(callback.call(thisArg, this.get(i), i));
+      result.push(callback.call(thisArg, this.get(i), i, this));
     }
     return result;
   }
 
+  filter<S extends T>(
+    callback: (value: T, index: number, array: SharedArray<T>) => value is S,
+    thisArg?: unknown,
+  ): S[];
   filter(
-    callback: (value: any, index: number) => boolean,
-    thisArg?: any,
-  ): any[] {
+    callback: (value: T, index: number, array: SharedArray<T>) => unknown,
+    thisArg?: unknown,
+  ): T[];
+  filter(
+    callback: (value: T, index: number, array: SharedArray<T>) => unknown,
+    thisArg?: unknown,
+  ): T[] {
     const length = this.length;
-    const result: any[] = [];
+    const result: T[] = [];
     for (let i = 0; i < length; i++) {
       const value = this.get(i);
-      if (callback.call(thisArg, value, i)) {
+      if (callback.call(thisArg, value, i, this)) {
         result.push(value);
       }
     }
     return result;
   }
 
-  find(callback: (value: any, index: number) => boolean, thisArg?: any): any {
+  find<S extends T>(
+    callback: (value: T, index: number, array: SharedArray<T>) => value is S,
+    thisArg?: unknown,
+  ): S | undefined;
+  find(
+    callback: (value: T, index: number, array: SharedArray<T>) => unknown,
+    thisArg?: unknown,
+  ): T | undefined;
+  find(
+    callback: (value: T, index: number, array: SharedArray<T>) => unknown,
+    thisArg?: unknown,
+  ): T | undefined {
     const length = this.length;
     for (let i = 0; i < length; i++) {
       const value = this.get(i);
-      if (callback.call(thisArg, value, i)) {
+      if (callback.call(thisArg, value, i, this)) {
         return value;
       }
     }
@@ -238,12 +263,12 @@ export class SharedArray<T = any> {
   }
 
   findIndex(
-    callback: (value: any, index: number) => boolean,
-    thisArg?: any,
+    callback: (value: T, index: number, array: SharedArray<T>) => unknown,
+    thisArg?: unknown,
   ): number {
     const length = this.length;
     for (let i = 0; i < length; i++) {
-      if (callback.call(thisArg, this.get(i), i)) {
+      if (callback.call(thisArg, this.get(i), i, this)) {
         return i;
       }
     }
@@ -251,12 +276,12 @@ export class SharedArray<T = any> {
   }
 
   every(
-    callback: (value: any, index: number) => boolean,
-    thisArg?: any,
+    callback: (value: T, index: number, array: SharedArray<T>) => boolean,
+    thisArg?: unknown,
   ): boolean {
     const length = this.length;
     for (let i = 0; i < length; i++) {
-      if (!callback.call(thisArg, this.get(i), i)) {
+      if (!callback.call(thisArg, this.get(i), i, this)) {
         return false;
       }
     }
@@ -264,24 +289,55 @@ export class SharedArray<T = any> {
   }
 
   some(
-    callback: (value: any, index: number) => boolean,
-    thisArg?: any,
+    callback: (value: T, index: number, array: SharedArray<T>) => boolean,
+    thisArg?: unknown,
   ): boolean {
     const length = this.length;
     for (let i = 0; i < length; i++) {
-      if (callback.call(thisArg, this.get(i), i)) {
+      if (callback.call(thisArg, this.get(i), i, this)) {
         return true;
       }
     }
     return false;
   }
 
-  reduce<T>(
-    callback: (previousValue: T, currentValue: any, currentIndex: number) => T,
-    initialValue?: T,
-  ): T {
+  reduce(
+    callback: (
+      previousValue: T,
+      currentValue: T,
+      currentIndex: number,
+      array: SharedArray<T>,
+    ) => T,
+  ): T;
+  reduce(
+    callback: (
+      previousValue: T,
+      currentValue: T,
+      currentIndex: number,
+      array: SharedArray<T>,
+    ) => T,
+    initialValue: T,
+  ): T;
+  reduce<U>(
+    callback: (
+      previousValue: U,
+      currentValue: T,
+      currentIndex: number,
+      array: SharedArray<T>,
+    ) => U,
+    initialValue: U,
+  ): U;
+  reduce<U>(
+    callback: (
+      previousValue: T | U,
+      currentValue: T,
+      currentIndex: number,
+      array: SharedArray<T>,
+    ) => T | U,
+    initialValue?: U,
+  ): T | U {
     const length = this.length;
-    let accumulator: T;
+    let accumulator: T | U;
     let startIndex = 0;
 
     if (initialValue === undefined) {
@@ -295,7 +351,7 @@ export class SharedArray<T = any> {
     }
 
     for (let i = startIndex; i < length; i++) {
-      accumulator = callback(accumulator, this.get(i), i);
+      accumulator = callback(accumulator, this.get(i), i, this);
     }
 
     return accumulator;
@@ -334,7 +390,7 @@ export class SharedArray<T = any> {
     return this;
   }
 
-  fill(value: any, start?: number, end?: number): this {
+  fill(value: T, start?: number, end?: number): this {
     const length = this.length;
     const actualStart =
       start === undefined
@@ -356,23 +412,26 @@ export class SharedArray<T = any> {
     return this;
   }
 
-  [Symbol.iterator]() {
+  [Symbol.iterator](): IterableIterator<T> {
     let index = 0;
     const length = this.length;
     const self = this;
 
     return {
-      next(): IteratorResult<any> {
+      next(): IteratorResult<T> {
         if (index < length) {
           return { value: self.get(index++), done: false };
         } else {
-          return { value: undefined, done: true };
+          return { value: undefined as any, done: true };
         }
+      },
+      [Symbol.iterator]() {
+        return this;
       },
     };
   }
 
-  entries() {
+  entries(): IterableIterator<[number, T]> {
     let index = 0;
     const length = this.length;
     const self = this;
@@ -381,10 +440,10 @@ export class SharedArray<T = any> {
       [Symbol.iterator]() {
         return this;
       },
-      next(): IteratorResult<[number, any]> {
+      next(): IteratorResult<[number, T]> {
         if (index < length) {
           return {
-            value: [index, self.get(index++)] as [number, any],
+            value: [index, self.get(index++)] as [number, T],
             done: false,
           };
         } else {
@@ -394,7 +453,7 @@ export class SharedArray<T = any> {
     };
   }
 
-  keys() {
+  keys(): IterableIterator<number> {
     let index = 0;
     const length = this.length;
 
@@ -412,7 +471,7 @@ export class SharedArray<T = any> {
     };
   }
 
-  values() {
+  values(): IterableIterator<T> {
     let index = 0;
     const length = this.length;
     const self = this;
@@ -421,7 +480,7 @@ export class SharedArray<T = any> {
       [Symbol.iterator]() {
         return this;
       },
-      next(): IteratorResult<any> {
+      next(): IteratorResult<T> {
         if (index < length) {
           return { value: self.get(index++), done: false };
         } else {
