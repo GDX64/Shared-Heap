@@ -24,6 +24,22 @@ impl HeapObjKind {
         let my_id = *self as u64;
         return (id << 2) | my_id;
     }
+
+    pub fn is_array_id(id: u64) -> bool {
+        (id & 0b11) == (HeapObjKind::Array as u64)
+    }
+
+    pub fn is_object_id(id: u64) -> bool {
+        (id & 0b11) == (HeapObjKind::Object as u64)
+    }
+
+    pub fn is_bin_view_id(id: u64) -> bool {
+        (id & 0b11) == (HeapObjKind::BinView as u64)
+    }
+
+    pub fn is_shared_obj_id(id: u64) -> bool {
+        (id & 0b11) == (HeapObjKind::SharedObj as u64)
+    }
 }
 
 pub struct Object {

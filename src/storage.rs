@@ -6,14 +6,6 @@ use crate::object::{HeapObjKind, Object, WeakObject};
 use crate::value::Something;
 use crate::w_mutex::{MutexWriteGuard, WasmMutex};
 
-fn is_bin_view_id(id: u64) -> bool {
-    (id & 0b11) == (HeapObjKind::BinView as u64)
-}
-
-fn is_shared_obj_id(id: u64) -> bool {
-    (id & 0b11) == (HeapObjKind::SharedObj as u64)
-}
-
 thread_local! {
     static LOCAL_OBJECTS: RefCell<HashMap<u64, Object, FastIDHasher>> = RefCell::new(HashMap::with_hasher(FastIDHasher::new()));
 }
@@ -297,7 +289,7 @@ impl Storage {
     }
 
     pub fn get_bin_view_schema(&self, bin_view_id: u64) -> Option<u64> {
-        if !is_bin_view_id(bin_view_id) {
+        if !HeapObjKind::is_bin_view_id(bin_view_id) {
             return None;
         }
         with_local_object(
@@ -308,7 +300,7 @@ impl Storage {
     }
 
     pub fn get_bin_view_ptr(&self, bin_view_id: u64) -> Option<usize> {
-        if !is_bin_view_id(bin_view_id) {
+        if !HeapObjKind::is_bin_view_id(bin_view_id) {
             return None;
         }
         with_local_object(
@@ -319,7 +311,7 @@ impl Storage {
     }
 
     pub fn get_shared_obj_schema(&self, shared_obj_id: u64) -> Option<u64> {
-        if !is_shared_obj_id(shared_obj_id) {
+        if !HeapObjKind::is_shared_obj_id(shared_obj_id) {
             return None;
         }
         with_local_object(
@@ -388,7 +380,7 @@ impl Hasher for FastIDHasher {
         self.state = i;
     }
 
-    fn write(&mut self, bytes: &[u8]) {
+    fn write(&mut self, _bytes: &[u8]) {
         panic!("FastIDHasher only supports hashing a single u64");
     }
 }
