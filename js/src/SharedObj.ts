@@ -1,28 +1,118 @@
 import type { SharedHeap } from "./AnyStore";
 import { fastHash } from "./hash";
 
-export type ObjectSchema = Record<string, any>;
+export type ObjectSchema = Record<string, unknown>;
 
-export class SharedObj {
-  heapID!: bigint;
-  store!: SharedHeap;
+type SharedObjInstance<T extends ObjectSchema> = SharedObj<T> & {
+  [K in keyof T]: T[K];
+};
 
-  static schema<T extends ObjectSchema>(schema: T) {
-    class SharedObjImpl {}
+type SharedObjDefinition<T extends ObjectSchema> = {
+  type: "sharedobj";
+  constructor: SharedObjConstructor<T>;
+  schemaKey: bigint;
+};
 
-    Object.keys(schema).forEach((key) => {
+export type SharedObjConstructor<T extends ObjectSchema> = {
+  from(data: T, store?: SharedHeap): SharedObjInstance<T>;
+  fromHeapID(heapID: bigint, store: SharedHeap): SharedObjInstance<T>;
+  schemaKey(): bigint;
+  definition(): SharedObjDefinition<T>;
+};
+
+export class SharedObj<T extends ObjectSchema = ObjectSchema> {
+  private initialData: T | null;
+
+  constructor(
+    public readonly heapID: bigint,
+    protected store: SharedHeap,
+    private readonly _schemaKey: bigint,
+    initialData: T | null = null,
+  ) {
+    this.initialData = initialData;
+  }
+
+  schemaKey(): bigint {
+    return this._schemaKey;
+  }
+
+  takeInitialData(): T {
+    const result = this.initialData;
+    this.initialData = null;
+    return result ?? ({} as T);
+  }
+
+  static schema<T extends ObjectSchema>(schema: T): SchemaConstructor<T> {
+    const keys = Object.keys(schema);
+    const schemaKey = fastHash(JSON.stringify(keys));
+
+    class SharedObjImpl extends SharedObj<T> {
+      constructor(
+        heapID: bigint,
+        store: SharedHeap,
+        initialData: T | null = null,
+      ) {
+        super(heapID, store, schemaKey, initialData);
+      }
+
+      static from(data: T, store?: SharedHeap): SharedObjInstance<T> {
+        if (store) {
+          const obj = new SharedObjImpl(
+            store.createSharedObj(schemaKey),
+            store,
+          );
+          keys.forEach((key) => {
+            (obj as any)[key] = data[key as keyof T];
+          });
+          return obj as SharedObjInstance<T>;
+        }
+
+        return new SharedObjImpl(0n, null as any, {
+          ...data,
+        }) as SharedObjInstance<T>;
+      }
+
+      static fromHeapID(
+        heapID: bigint,
+        store: SharedHeap,
+      ): SharedObjInstance<T> {
+        return new SharedObjImpl(heapID, store) as SharedObjInstance<T>;
+      }
+
+      static schemaKey() {
+        return schemaKey;
+      }
+
+      static definition(): SharedObjDefinition<T> {
+        return {
+          type: "sharedobj",
+          constructor: SharedObjImpl as unknown as SharedObjConstructor<T>,
+          schemaKey,
+        };
+      }
+    }
+
+    keys.forEach((key) => {
+      const propertyKey = fastHash(key);
       Object.defineProperty(SharedObjImpl.prototype, key, {
-        get(this: SharedObj) {
-          return this.store["getObjProperty"](this.heapID, fastHash(key));
+        get(this: SharedObj<T>) {
+          return this.store["getSharedObjectProperty"](
+            this.heapID,
+            propertyKey,
+          );
         },
-        set(this: SharedObj, value) {
-          this.store["setObjProperty"](this.heapID, fastHash(key), value);
+        set(this: SharedObj<T>, value: T[keyof T]) {
+          this.store["setSharedObjectProperty"](
+            this.heapID,
+            propertyKey,
+            value,
+          );
         },
       });
     });
+
+    return SharedObjImpl as unknown as SchemaConstructor<T>;
   }
 }
 
-type SharedObjImpl<T extends ObjectSchema> = SharedObj & {
-  [K in keyof T]: any;
-};
+type SchemaConstructor<T extends ObjectSchema> = SharedObjConstructor<T>;

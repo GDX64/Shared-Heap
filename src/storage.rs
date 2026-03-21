@@ -10,6 +10,10 @@ fn is_bin_view_id(id: u64) -> bool {
     (id & 0b11) == (HeapObjKind::BinView as u64)
 }
 
+fn is_shared_obj_id(id: u64) -> bool {
+    (id & 0b11) == (HeapObjKind::SharedObj as u64)
+}
+
 thread_local! {
     static LOCAL_OBJECTS: RefCell<HashMap<u64, Object, FastIDHasher>> = RefCell::new(HashMap::with_hasher(FastIDHasher::new()));
 }
@@ -178,6 +182,18 @@ impl Storage {
         id
     }
 
+    pub fn create_shared_obj(&self, schema_key: u64) -> u64 {
+        let mut inner = self.inner_guard();
+        let base_id = inner.last_id;
+        inner.last_id += 1;
+        let id = HeapObjKind::SharedObj.mask_id(base_id);
+
+        let object = Object::new_shared_obj(schema_key);
+        inner.collection.insert(id, object.downgrade());
+        local_insert(id, object);
+        id
+    }
+
     pub fn get_object(&self, id: u64) -> Option<Object> {
         with_local_object(
             id,
@@ -299,6 +315,22 @@ impl Storage {
             bin_view_id,
             |object| Some(object.get_bin_view_ptr()),
             || Some(self.get_inner_object(bin_view_id)?.get_bin_view_ptr()),
+        )
+    }
+
+    pub fn get_shared_obj_schema(&self, shared_obj_id: u64) -> Option<u64> {
+        if !is_shared_obj_id(shared_obj_id) {
+            return None;
+        }
+        with_local_object(
+            shared_obj_id,
+            |object| Some(object.get_shared_obj_schema()),
+            || {
+                Some(
+                    self.get_inner_object(shared_obj_id)?
+                        .get_shared_obj_schema(),
+                )
+            },
         )
     }
 

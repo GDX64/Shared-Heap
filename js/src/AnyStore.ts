@@ -1,10 +1,12 @@
 import initModule, {
   get_bin_view_schema,
+  get_shared_obj_schema,
   type InitOutput,
 } from "../pkg/shared_heap";
 import { BinView } from "./BinView";
 import { fastHash } from "./hash";
 import { SharedArray } from "./SharedArray";
+import { SharedObj, type SharedObjConstructor } from "./SharedObj";
 import {
   popObjectFromStack,
   pushBlobToStack,
@@ -22,6 +24,8 @@ export class SharedHeap {
   private workerID: number = 0;
   private proxyMap: Map<bigint, WeakRef<any>> = new Map();
   private binViewConstructors: Map<bigint, typeof BinView> = new Map();
+  private sharedObjConstructors: Map<bigint, SharedObjConstructor<any>> =
+    new Map();
   private finalization: FinalizationRegistry<bigint>;
 
   constructor(
@@ -101,8 +105,27 @@ export class SharedHeap {
     this.binViewConstructors.set(schemaKey, constructor);
   }
 
+  registerObjectSchema(schema: SharedObjConstructor<any>): void {
+    const { schemaKey, constructor } = schema.definition();
+    this.sharedObjConstructors.set(schemaKey, constructor);
+  }
+
+  createSharedObj(schemaKey: bigint): bigint {
+    return this.mod.create_shared_obj(schemaKey);
+  }
+
   createObject<T>(initial: T): T & { heapID: bigint } {
     let id;
+    if (isSharedObjInst(initial)) {
+      id = this.mod.create_shared_obj(initial.schemaKey());
+      const obj = this.createHandlerForID(id);
+      const initialData = initial.takeInitialData();
+      for (const key in initialData) {
+        (obj as any)[key] = (initialData as any)[key];
+      }
+      return obj;
+    }
+
     if (isSharedArrayInst(initial)) {
       id = this.mod.create_array();
       const obj = this.createHandlerForID(id);
@@ -132,6 +155,14 @@ export class SharedHeap {
         throw new Error("No constructor found for bin view with schema key ");
       }
       obj = ctor.fromMemory(this.memory.buffer, viewPtr, id);
+    } else if (isSharedObjID(id)) {
+      const schemaKey = get_shared_obj_schema(id);
+      const ctor = this.sharedObjConstructors.get(schemaKey);
+      if (!ctor) {
+        obj = createProxyForObject(id, this);
+      } else {
+        obj = ctor.fromHeapID(id, this);
+      }
     } else {
       obj = createProxyForObject(id, this);
     }
@@ -157,7 +188,24 @@ export class SharedHeap {
     return this.decodePoppedValue();
   }
 
+  private getSharedObjectProperty(
+    objID: bigint,
+    prop: bigint,
+  ): Something["value"] {
+    this.mod.get_object_property(objID, prop);
+    return this.decodePoppedValue();
+  }
+
   private setObjProperty(objID: bigint, prop: bigint, value: unknown): void {
+    this.pushSomething(value);
+    this.mod.set_object_property(objID, prop);
+  }
+
+  private setSharedObjectProperty(
+    objID: bigint,
+    prop: bigint,
+    value: unknown,
+  ): void {
     this.pushSomething(value);
     this.mod.set_object_property(objID, prop);
   }
@@ -205,6 +253,16 @@ export class SharedHeap {
   }
 
   private pushSomething(value: unknown): void {
+    if (isSharedObjInst(value)) {
+      if (value.heapID === 0n) {
+        const obj = this.createObject(value);
+        this.mod.something_push_ref_to_stack(obj.heapID);
+        return;
+      }
+      this.mod.something_push_ref_to_stack(value.heapID);
+      return;
+    }
+
     if (isSharedArrayInst(value)) {
       // If it's a SharedArray marker (heapID 0n), create a new array
       if (value.heapID === 0n) {
@@ -348,11 +406,15 @@ function createProxyForObject(objID: bigint, store: SharedHeap): any {
 }
 
 function isArrayID(objID: bigint): boolean {
-  return (objID & 0b1n) !== 0n;
+  return (objID & 0b11n) === 0b01n;
 }
 
 function isBinView(objID: bigint): boolean {
   return (objID & 0b11n) === 0b10n;
+}
+
+function isSharedObjID(objID: bigint): boolean {
+  return (objID & 0b11n) === 0b11n;
 }
 
 function isBinViewInst(value: unknown): value is BinView {
@@ -361,4 +423,8 @@ function isBinViewInst(value: unknown): value is BinView {
 
 function isSharedArrayInst(value: unknown): value is SharedArray {
   return value instanceof SharedArray;
+}
+
+function isSharedObjInst(value: unknown): value is SharedObj {
+  return value instanceof SharedObj;
 }

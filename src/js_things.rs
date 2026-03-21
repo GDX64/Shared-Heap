@@ -102,6 +102,11 @@ pub fn create_bin_view(schema_key: u64, size: u32) -> u64 {
 }
 
 #[wasm_bindgen]
+pub fn create_shared_obj(schema_key: u64) -> u64 {
+    GLOBALS.create_shared_obj(schema_key)
+}
+
+#[wasm_bindgen]
 pub fn get_bin_view_schema(bin_view_id: u64) -> u64 {
     GLOBALS.get_bin_view_schema(bin_view_id).unwrap_or(0)
 }
@@ -109,6 +114,11 @@ pub fn get_bin_view_schema(bin_view_id: u64) -> u64 {
 #[wasm_bindgen]
 pub fn get_bin_view_ptr(bin_view_id: u64) -> usize {
     GLOBALS.get_bin_view_ptr(bin_view_id).unwrap_or(0)
+}
+
+#[wasm_bindgen]
+pub fn get_shared_obj_schema(shared_obj_id: u64) -> u64 {
+    GLOBALS.get_shared_obj_schema(shared_obj_id).unwrap_or(0)
 }
 
 #[wasm_bindgen]

@@ -4,6 +4,7 @@ import { bench, describe } from "vitest";
 import { reactive } from "vue";
 import { BinView } from "../src/BinView";
 import { SharedArray } from "../src/SharedArray";
+import { SharedObj } from "../src/SharedObj";
 
 setupFetch();
 
@@ -15,12 +16,17 @@ describe("simple counter increment", () => {
   const BinViewConstructor = BinView.schema({
     counter: "f64",
   });
+  const CounterSchema = SharedObj.schema({
+    value: 0,
+  });
   db.registerView(BinViewConstructor);
+  db.registerObjectSchema(CounterSchema);
   const counter = db.createObject({
     value: 0,
     view: BinViewConstructor.empty(),
     arr: SharedArray.from([0]),
   });
+  const sharedObjCounter = CounterSchema.from({ value: 0 }, db);
   const view = counter.view;
   view.counter = 0;
   bench("view counting", () => {
@@ -42,6 +48,12 @@ describe("simple counter increment", () => {
     }
   });
 
+  bench("shared object kind", () => {
+    for (let i = 0; i < N; i++) {
+      sharedObjCounter.value += 1;
+    }
+  });
+
   const normalCounter = { value: 0 };
   bench("normal js", () => {
     for (let i = 0; i < N; i++) {
@@ -59,6 +71,14 @@ describe("simple counter increment", () => {
 
 //User record updates (realistic scenario)
 describe("user record updates", () => {
+  const UserSchema = SharedObj.schema({
+    id: 1,
+    name: "John Doe",
+    age: 30,
+    score: 0,
+  });
+  db.registerObjectSchema(UserSchema);
+
   const user = db.createObject({
     id: 1,
     name: "John Doe",
@@ -66,11 +86,30 @@ describe("user record updates", () => {
     score: 0,
   });
 
+  const sharedUser = UserSchema.from(
+    {
+      id: 1,
+      name: "John Doe",
+      age: 30,
+      score: 0,
+    },
+    db,
+  );
+
   bench("shared heap", () => {
     for (let i = 0; i < N; i++) {
       user.score += 1;
       if (user.score % 100 === 0) {
         user.age += 1;
+      }
+    }
+  });
+
+  bench("shared object kind", () => {
+    for (let i = 0; i < N; i++) {
+      sharedUser.score += 1;
+      if (sharedUser.score % 100 === 0) {
+        sharedUser.age += 1;
       }
     }
   });
@@ -146,16 +185,40 @@ describe("mixed read/write operations", () => {
 
 // Object property access pattern
 describe("property access pattern", () => {
+  const ConfigSchema = SharedObj.schema({
+    enabled: true,
+    count: 0,
+    multiplier: 1.5,
+  });
+  db.registerObjectSchema(ConfigSchema);
+
   const config = db.createObject({
     enabled: true,
     count: 0,
     multiplier: 1.5,
   });
 
+  const sharedConfig = ConfigSchema.from(
+    {
+      enabled: true,
+      count: 0,
+      multiplier: 1.5,
+    },
+    db,
+  );
+
   bench("shared heap", () => {
     for (let i = 0; i < N; i++) {
       if (config.enabled) {
         config.count += config.multiplier;
+      }
+    }
+  });
+
+  bench("shared object kind", () => {
+    for (let i = 0; i < N; i++) {
+      if (sharedConfig.enabled) {
+        sharedConfig.count += sharedConfig.multiplier;
       }
     }
   });

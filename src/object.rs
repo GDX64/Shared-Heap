@@ -8,6 +8,7 @@ enum HeapObj {
     Object(HashObject),
     Array(Vec<Something>),
     BinView(BinViewObject),
+    SharedObj(SharedObjObject),
 }
 
 #[derive(Clone, Copy)]
@@ -15,6 +16,7 @@ pub enum HeapObjKind {
     Object = 0,
     Array = 1,
     BinView = 2,
+    SharedObj = 3,
 }
 
 impl HeapObjKind {
@@ -41,6 +43,11 @@ struct BinViewObject {
     bytes: Vec<u8>,
 }
 
+struct SharedObjObject {
+    schema_key: u64,
+    properties: HashMap<u64, Something>,
+}
+
 impl Object {
     pub fn new(kind: HeapObjKind) -> Self {
         let heap_obj = match kind {
@@ -56,6 +63,12 @@ impl Object {
                     bytes: Vec::new(),
                 })
             }
+            HeapObjKind::SharedObj => {
+                HeapObj::SharedObj(SharedObjObject {
+                    schema_key: 0,
+                    properties: HashMap::new(),
+                })
+            }
         };
         Object {
             inner: Arc::new(WasmMutex::new(heap_obj)),
@@ -67,6 +80,15 @@ impl Object {
             inner: Arc::new(WasmMutex::new(HeapObj::BinView(BinViewObject {
                 schema_key,
                 bytes: vec![0; size],
+            }))),
+        }
+    }
+
+    pub fn new_shared_obj(schema_key: u64) -> Self {
+        Object {
+            inner: Arc::new(WasmMutex::new(HeapObj::SharedObj(SharedObjObject {
+                schema_key,
+                properties: HashMap::new(),
             }))),
         }
     }
@@ -150,37 +172,54 @@ impl Object {
 
     pub fn set_property(&self, key: u64, value: Something) -> Option<Something> {
         let mut inner = self.lock_inner();
-        if let HeapObj::Object(obj) = &mut *inner {
-            obj.properties.insert(key, value)
-        } else {
-            panic!("Cannot set property on non-object");
+        match &mut *inner {
+            HeapObj::Object(obj) => obj.properties.insert(key, value),
+            HeapObj::SharedObj(obj) => obj.properties.insert(key, value),
+            _ => {
+                panic!("Cannot set property on non-object");
+            }
         }
     }
 
     pub fn get_property(&self, key: u64) -> Option<Something> {
         let inner = self.lock_inner();
-        if let HeapObj::Object(obj) = &*inner {
-            obj.properties.get(&key).cloned()
-        } else {
-            panic!("Cannot get property from non-object");
+        match &*inner {
+            HeapObj::Object(obj) => obj.properties.get(&key).cloned(),
+            HeapObj::SharedObj(obj) => obj.properties.get(&key).cloned(),
+            _ => {
+                panic!("Cannot get property from non-object");
+            }
         }
     }
 
     pub fn delete_property(&self, key: u64) -> Option<Something> {
         let mut inner = self.lock_inner();
-        if let HeapObj::Object(obj) = &mut *inner {
-            obj.properties.remove(&key)
-        } else {
-            panic!("Cannot delete property from non-object");
+        match &mut *inner {
+            HeapObj::Object(obj) => obj.properties.remove(&key),
+            HeapObj::SharedObj(obj) => obj.properties.remove(&key),
+            _ => {
+                panic!("Cannot delete property from non-object");
+            }
         }
     }
 
     pub fn take_properties(&self) -> HashMap<u64, Something> {
         let mut inner = self.lock_inner();
-        if let HeapObj::Object(obj) = &mut *inner {
-            return std::mem::take(&mut obj.properties);
+        match &mut *inner {
+            HeapObj::Object(obj) => std::mem::take(&mut obj.properties),
+            HeapObj::SharedObj(obj) => std::mem::take(&mut obj.properties),
+            _ => {
+                panic!("Cannot take properties from non-object");
+            }
+        }
+    }
+
+    pub fn get_shared_obj_schema(&self) -> u64 {
+        let inner = self.lock_inner();
+        if let HeapObj::SharedObj(obj) = &*inner {
+            obj.schema_key
         } else {
-            panic!("Cannot take properties from non-object");
+            panic!("Cannot get shared object schema from non-shared-object");
         }
     }
 
