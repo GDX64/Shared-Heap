@@ -19,26 +19,11 @@ pub enum HeapObjKind {
     SharedObj = 3,
 }
 
+const BIT_MASK: u64 = 0b11;
 impl HeapObjKind {
     pub fn mask_id(&self, id: u64) -> u64 {
         let my_id = *self as u64;
         return (id << 2) | my_id;
-    }
-
-    pub fn is_array_id(id: u64) -> bool {
-        (id & 0b11) == (HeapObjKind::Array as u64)
-    }
-
-    pub fn is_object_id(id: u64) -> bool {
-        (id & 0b11) == (HeapObjKind::Object as u64)
-    }
-
-    pub fn is_bin_view_id(id: u64) -> bool {
-        (id & 0b11) == (HeapObjKind::BinView as u64)
-    }
-
-    pub fn is_shared_obj_id(id: u64) -> bool {
-        (id & 0b11) == (HeapObjKind::SharedObj as u64)
     }
 }
 
@@ -53,25 +38,29 @@ impl ObjectKey {
     }
 
     pub fn is_array_id(&self) -> bool {
-        HeapObjKind::is_array_id(self.key)
+        let id = self.key;
+        (id & BIT_MASK) == (HeapObjKind::Array as u64)
     }
 
     pub fn is_object_id(&self) -> bool {
-        HeapObjKind::is_object_id(self.key)
+        let id = self.key;
+        (id & BIT_MASK) == (HeapObjKind::Object as u64)
     }
 
     pub fn is_bin_view_id(&self) -> bool {
-        HeapObjKind::is_bin_view_id(self.key)
+        let id = self.key;
+        (id & BIT_MASK) == (HeapObjKind::BinView as u64)
     }
 
     pub fn is_shared_obj_id(&self) -> bool {
-        HeapObjKind::is_shared_obj_id(self.key)
+        let id = self.key;
+        (id & BIT_MASK) == (HeapObjKind::SharedObj as u64)
     }
 }
 
 impl Into<u64> for ObjectKey {
     fn into(self) -> u64 {
-        self.key
+        self.key as u64
     }
 }
 

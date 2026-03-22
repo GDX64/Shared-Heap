@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::hash::{BuildHasher, Hasher};
 
+use crate::fast_id_hasher::FastIDHasher;
 use crate::object::{HeapObjKind, Object, ObjectKey, WeakObject};
 use crate::value::Something;
 use crate::w_mutex::{MutexWriteGuard, WasmMutex};
@@ -321,7 +321,8 @@ impl Storage {
     }
 
     pub fn get_bin_view_schema(&self, bin_view_id: u64) -> Option<u64> {
-        if !HeapObjKind::is_bin_view_id(bin_view_id) {
+        let id = ObjectKey::from(bin_view_id);
+        if !id.is_bin_view_id() {
             return None;
         }
         let object_key = ObjectKey::from(bin_view_id);
@@ -333,7 +334,8 @@ impl Storage {
     }
 
     pub fn get_bin_view_ptr(&self, bin_view_id: u64) -> Option<usize> {
-        if !HeapObjKind::is_bin_view_id(bin_view_id) {
+        let id = ObjectKey::from(bin_view_id);
+        if !id.is_bin_view_id() {
             return None;
         }
         let object_key = ObjectKey::from(bin_view_id);
@@ -345,7 +347,8 @@ impl Storage {
     }
 
     pub fn get_shared_obj_schema(&self, shared_obj_id: u64) -> Option<u64> {
-        if !HeapObjKind::is_shared_obj_id(shared_obj_id) {
+        let id = ObjectKey::from(shared_obj_id);
+        if !id.is_shared_obj_id() {
             return None;
         }
         let object_key = ObjectKey::from(shared_obj_id);
@@ -381,37 +384,5 @@ impl Storage {
                 })
             },
         )
-    }
-}
-
-struct FastIDHasher {
-    state: u64,
-}
-
-impl FastIDHasher {
-    const fn new() -> Self {
-        FastIDHasher { state: 0 }
-    }
-}
-
-impl BuildHasher for FastIDHasher {
-    type Hasher = Self;
-
-    fn build_hasher(&self) -> Self::Hasher {
-        FastIDHasher { state: 0 }
-    }
-}
-
-impl Hasher for FastIDHasher {
-    fn finish(&self) -> u64 {
-        self.state
-    }
-
-    fn write_u64(&mut self, i: u64) {
-        self.state = i;
-    }
-
-    fn write(&mut self, _bytes: &[u8]) {
-        panic!("FastIDHasher only supports hashing a single u64");
     }
 }
