@@ -1,10 +1,7 @@
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{extern_functions::*, object_kinds::HeapObjKind, storage::Storage, value::Something};
-use std::{
-    cell::RefCell,
-    sync::{Arc, LazyLock},
-};
+use std::{cell::RefCell, ptr, sync::Arc};
 
 struct SomethingStack {
     stack: Vec<Something>,
@@ -40,134 +37,144 @@ fn pop_from_something_stack() -> Option<Something> {
     return pop_something();
 }
 
-static GLOBALS: LazyLock<Storage> = LazyLock::new(Storage::new);
+static mut GLOBALS_PTR: *mut Storage = ptr::null_mut();
+
+fn globals() -> &'static Storage {
+    unsafe { &*GLOBALS_PTR }
+}
 
 #[wasm_bindgen]
 pub fn lock(object_id: u64) -> bool {
-    GLOBALS.lock(object_id)
+    globals().lock(object_id)
 }
 
 #[wasm_bindgen]
 pub fn unlock(object_id: u64) -> bool {
-    GLOBALS.unlock(object_id)
+    globals().unlock(object_id)
 }
 
 #[wasm_bindgen]
 pub fn try_lock(object_id: u64) -> bool {
-    GLOBALS.try_lock(object_id)
+    globals().try_lock(object_id)
 }
 
 #[wasm_bindgen]
 pub fn lock_pointer(object_id: u64) -> *const i32 {
-    GLOBALS.lock_pointer(object_id)
+    globals().lock_pointer(object_id)
 }
 
 #[wasm_bindgen]
 pub fn get_object_property(object_id: u64, key: u64) {
-    if let Some(obj) = GLOBALS.get_object_property(object_id, key) {
-        push_to_js_stack(&obj, &GLOBALS);
+    if let Some(obj) = globals().get_object_property(object_id, key) {
+        push_to_js_stack(&obj, globals());
     }
 }
 
 #[wasm_bindgen]
 pub fn increment_object_references(object_id: u64) -> bool {
-    return GLOBALS
+    return globals()
         .increment_object_references(object_id)
         .unwrap_or(false);
 }
 
 #[wasm_bindgen]
 pub fn drop_object(id: u64) {
-    GLOBALS.try_drop(id);
+    globals().try_drop(id);
 }
 
 #[wasm_bindgen]
 pub fn get_reference_count(object_id: u64) -> i32 {
-    return GLOBALS.get_reference_count(object_id).unwrap_or(0) as i32;
+    return globals().get_reference_count(object_id).unwrap_or(0) as i32;
 }
 
 #[wasm_bindgen]
 pub fn create_object() -> u64 {
-    return GLOBALS.create_object(HeapObjKind::Object);
+    return globals().create_object(HeapObjKind::Object);
 }
 
 #[wasm_bindgen]
 pub fn create_array() -> u64 {
-    GLOBALS.create_object(HeapObjKind::Array)
+    globals().create_object(HeapObjKind::Array)
 }
 
 #[wasm_bindgen]
 pub fn create_bin_view(schema_key: u64, size: u32) -> u64 {
-    GLOBALS.create_bin_view(schema_key, size as usize)
+    globals().create_bin_view(schema_key, size as usize)
 }
 
 #[wasm_bindgen]
 pub fn create_shared_obj(schema_key: u64, size: u32) -> u64 {
-    GLOBALS.create_shared_obj(schema_key, size as usize)
+    globals().create_shared_obj(schema_key, size as usize)
 }
 
 #[wasm_bindgen]
 pub fn get_bin_view_schema(bin_view_id: u64) -> u64 {
-    GLOBALS.get_bin_view_schema(bin_view_id).unwrap_or(0)
+    globals().get_bin_view_schema(bin_view_id).unwrap_or(0)
 }
 
 #[wasm_bindgen]
 pub fn get_bin_view_ptr(bin_view_id: u64) -> usize {
-    GLOBALS.get_bin_view_ptr(bin_view_id).unwrap_or(0)
+    globals().get_bin_view_ptr(bin_view_id).unwrap_or(0)
 }
 
 #[wasm_bindgen]
 pub fn get_shared_obj_schema(shared_obj_id: u64) -> u64 {
-    GLOBALS.get_shared_obj_schema(shared_obj_id).unwrap_or(0)
+    globals().get_shared_obj_schema(shared_obj_id).unwrap_or(0)
 }
 
 #[wasm_bindgen]
 pub fn array_get_length(array_id: u64) -> i32 {
-    GLOBALS.array_len(array_id).unwrap_or(0) as i32
+    globals().array_len(array_id).unwrap_or(0) as i32
 }
 
 #[wasm_bindgen]
 pub fn array_push(array_id: u64) {
     if let Some(value) = pop_from_something_stack() {
-        GLOBALS.array_push(array_id, value);
+        globals().array_push(array_id, value);
     }
 }
 
 #[wasm_bindgen]
 pub fn array_pop(array_id: u64) {
-    if let Some(obj) = GLOBALS.array_pop(array_id) {
-        push_to_js_stack(&obj, &GLOBALS);
+    if let Some(obj) = globals().array_pop(array_id) {
+        push_to_js_stack(&obj, globals());
     }
 }
 
 #[wasm_bindgen]
 pub fn array_set_index(array_id: u64, index: u32) {
     if let Some(value) = pop_from_something_stack() {
-        GLOBALS.array_set_index(array_id, index as usize, value);
+        globals().array_set_index(array_id, index as usize, value);
     }
 }
 
 #[wasm_bindgen]
 pub fn array_get_index(array_id: u64, index: u32) {
-    if let Some(obj) = GLOBALS.array_get_index(array_id, index as usize) {
-        push_to_js_stack(&obj, &GLOBALS);
+    if let Some(obj) = globals().array_get_index(array_id, index as usize) {
+        push_to_js_stack(&obj, globals());
     }
 }
 
 #[wasm_bindgen]
 pub fn delete_object_property(object_id: u64, key: u64) {
-    GLOBALS.delete_object_property(object_id, key);
+    globals().delete_object_property(object_id, key);
 }
 
 #[wasm_bindgen]
 pub fn set_object_property(object_id: u64, key: u64) {
     if let Some(value) = pop_from_something_stack() {
-        GLOBALS.set_object_property(object_id, key, value);
+        globals().set_object_property(object_id, key, value);
     }
 }
 
 #[wasm_bindgen]
 pub fn start() {
+    unsafe {
+        if GLOBALS_PTR.is_null() {
+            GLOBALS_PTR = Box::into_raw(Box::new(Storage::new()));
+        }
+    }
+
     if worker_id() == 0 {
         std::panic::set_hook(Box::new(|info| {
             let msg = info.to_string();
@@ -198,7 +205,7 @@ pub fn something_push_string() {
 
 #[wasm_bindgen]
 pub fn something_push_ref_to_stack(value: u64) {
-    if let Some(something) = GLOBALS.create_reference(value) {
+    if let Some(something) = globals().create_reference(value) {
         push_something(something);
     }
 }
