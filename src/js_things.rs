@@ -1,6 +1,6 @@
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{extern_functions::*, object::HeapObjKind, storage::Storage, value::Something};
+use crate::{extern_functions::*, object_kinds::HeapObjKind, storage::Storage, value::Something};
 use std::{
     cell::RefCell,
     sync::{Arc, LazyLock},
@@ -102,8 +102,8 @@ pub fn create_bin_view(schema_key: u64, size: u32) -> u64 {
 }
 
 #[wasm_bindgen]
-pub fn create_shared_obj(schema_key: u64) -> u64 {
-    GLOBALS.create_shared_obj(schema_key)
+pub fn create_shared_obj(schema_key: u64, size: u32) -> u64 {
+    GLOBALS.create_shared_obj(schema_key, size as usize)
 }
 
 #[wasm_bindgen]

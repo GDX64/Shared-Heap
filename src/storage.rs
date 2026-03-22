@@ -2,7 +2,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::fast_id_hasher::FastIDHasher;
-use crate::object::{HeapObjKind, Object, ObjectKey, WeakObject};
+use crate::object::{Object, WeakObject};
+use crate::object_kinds::{HeapObjKind, ObjectKey};
 use crate::value::Something;
 use crate::w_mutex::{MutexWriteGuard, WasmMutex};
 
@@ -187,14 +188,14 @@ impl Storage {
         id
     }
 
-    pub fn create_shared_obj(&self, schema_key: u64) -> u64 {
+    pub fn create_shared_obj(&self, schema_key: u64, size: usize) -> u64 {
         let mut inner = self.inner_guard();
         let base_id = inner.last_id;
         inner.last_id += 1;
         let id = HeapObjKind::SharedObj.mask_id(base_id);
         let object_key = ObjectKey::from(id);
 
-        let object = Object::new_shared_obj(schema_key);
+        let object = Object::new_shared_obj(schema_key, size);
         inner.collection.insert(object_key, object.downgrade());
         local_insert(object_key, object);
         id

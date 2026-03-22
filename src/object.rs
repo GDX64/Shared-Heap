@@ -1,74 +1,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
+use crate::object_kinds::{
+    BinViewObject, HashObject, HeapObj, HeapObjKind, ObjectKey, SharedObject,
+};
 use crate::value::Something;
 use crate::w_mutex::{MutexWriteGuard, WasmMutex};
-
-enum HeapObj {
-    Object(HashObject),
-    Array(Vec<Something>),
-    BinView(BinViewObject),
-    SharedObj(SharedObjObject),
-}
-
-#[derive(Clone, Copy)]
-pub enum HeapObjKind {
-    Object = 0,
-    Array = 1,
-    BinView = 2,
-    SharedObj = 3,
-}
-
-const BIT_MASK: u64 = 0b11;
-impl HeapObjKind {
-    pub fn mask_id(&self, id: u64) -> u64 {
-        let my_id = *self as u64;
-        return (id << 2) | my_id;
-    }
-}
-
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ObjectKey {
-    key: u64,
-}
-
-impl ObjectKey {
-    pub fn new(key: u64) -> Self {
-        ObjectKey { key }
-    }
-
-    pub fn is_array_id(&self) -> bool {
-        let id = self.key;
-        (id & BIT_MASK) == (HeapObjKind::Array as u64)
-    }
-
-    pub fn is_object_id(&self) -> bool {
-        let id = self.key;
-        (id & BIT_MASK) == (HeapObjKind::Object as u64)
-    }
-
-    pub fn is_bin_view_id(&self) -> bool {
-        let id = self.key;
-        (id & BIT_MASK) == (HeapObjKind::BinView as u64)
-    }
-
-    pub fn is_shared_obj_id(&self) -> bool {
-        let id = self.key;
-        (id & BIT_MASK) == (HeapObjKind::SharedObj as u64)
-    }
-}
-
-impl Into<u64> for ObjectKey {
-    fn into(self) -> u64 {
-        self.key as u64
-    }
-}
-
-impl From<u64> for ObjectKey {
-    fn from(value: u64) -> Self {
-        ObjectKey { key: value }
-    }
-}
 
 pub struct Object {
     inner: Arc<WasmMutex<HeapObj>>,
@@ -76,20 +13,6 @@ pub struct Object {
 
 pub struct WeakObject {
     inner: Weak<WasmMutex<HeapObj>>,
-}
-
-struct HashObject {
-    properties: HashMap<ObjectKey, Something>,
-}
-
-struct BinViewObject {
-    schema_key: u64,
-    bytes: Vec<u8>,
-}
-
-struct SharedObjObject {
-    schema_key: u64,
-    properties: HashMap<ObjectKey, Something>,
 }
 
 impl Object {
@@ -108,9 +31,9 @@ impl Object {
                 })
             }
             HeapObjKind::SharedObj => {
-                HeapObj::SharedObj(SharedObjObject {
+                HeapObj::SharedObj(SharedObject {
                     schema_key: 0,
-                    properties: HashMap::new(),
+                    properties: Vec::new(),
                 })
             }
         };
@@ -128,12 +51,11 @@ impl Object {
         }
     }
 
-    pub fn new_shared_obj(schema_key: u64) -> Self {
+    pub fn new_shared_obj(schema_key: u64, size: usize) -> Self {
         Object {
-            inner: Arc::new(WasmMutex::new(HeapObj::SharedObj(SharedObjObject {
-                schema_key,
-                properties: HashMap::new(),
-            }))),
+            inner: Arc::new(WasmMutex::new(HeapObj::SharedObj(SharedObject::new(
+                schema_key, size,
+            )))),
         }
     }
 
@@ -216,9 +138,16 @@ impl Object {
 
     pub fn set_property(&self, key: ObjectKey, value: Something) -> Option<Something> {
         let mut inner = self.lock_inner();
+        let index = <ObjectKey as Into<u64>>::into(key) as usize;
         match &mut *inner {
             HeapObj::Object(obj) => obj.properties.insert(key, value),
-            HeapObj::SharedObj(obj) => obj.properties.insert(key, value),
+            HeapObj::SharedObj(obj) => {
+                if let Some(existing) = obj.properties.get_mut(index) {
+                    Some(std::mem::replace(existing, value))
+                } else {
+                    None
+                }
+            }
             _ => {
                 panic!("Cannot set property on non-object");
             }
@@ -227,9 +156,10 @@ impl Object {
 
     pub fn get_property(&self, key: ObjectKey) -> Option<Something> {
         let inner = self.lock_inner();
+        let index = <ObjectKey as Into<u64>>::into(key) as usize;
         match &*inner {
             HeapObj::Object(obj) => obj.properties.get(&key).cloned(),
-            HeapObj::SharedObj(obj) => obj.properties.get(&key).cloned(),
+            HeapObj::SharedObj(obj) => obj.properties.get(index).cloned(),
             _ => {
                 panic!("Cannot get property from non-object");
             }
@@ -238,9 +168,16 @@ impl Object {
 
     pub fn delete_property(&self, key: ObjectKey) -> Option<Something> {
         let mut inner = self.lock_inner();
+        let index = <ObjectKey as Into<u64>>::into(key) as usize;
         match &mut *inner {
             HeapObj::Object(obj) => obj.properties.remove(&key),
-            HeapObj::SharedObj(obj) => obj.properties.remove(&key),
+            HeapObj::SharedObj(obj) => {
+                if let Some(existing) = obj.properties.get_mut(index) {
+                    Some(std::mem::replace(existing, Something::Null))
+                } else {
+                    None
+                }
+            }
             _ => {
                 panic!("Cannot delete property from non-object");
             }
@@ -251,7 +188,9 @@ impl Object {
         let mut inner = self.lock_inner();
         match &mut *inner {
             HeapObj::Object(obj) => std::mem::take(&mut obj.properties),
-            HeapObj::SharedObj(obj) => std::mem::take(&mut obj.properties),
+            HeapObj::SharedObj(_obj) => {
+                panic!("Cannot take properties from shared object");
+            }
             _ => {
                 panic!("Cannot take properties from non-object");
             }

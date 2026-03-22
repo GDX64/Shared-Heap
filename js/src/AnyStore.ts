@@ -110,14 +110,17 @@ export class SharedHeap {
     this.sharedObjConstructors.set(schemaKey, constructor);
   }
 
-  createSharedObj(schemaKey: bigint): bigint {
-    return this.mod.create_shared_obj(schemaKey);
+  createSharedObj(schemaKey: bigint, size: number): bigint {
+    return this.mod.create_shared_obj(schemaKey, size);
   }
 
   createObject<T>(initial: T): T & { heapID: bigint } {
     let id;
     if (isSharedObjInst(initial)) {
-      id = this.mod.create_shared_obj(initial.schemaKey());
+      id = this.mod.create_shared_obj(
+        initial.schemaKey(),
+        initial.schemaSize(),
+      );
       const obj = this.createHandlerForID(id);
       const initialData = initial.takeInitialData();
       for (const key in initialData) {

@@ -1,4 +1,5 @@
 import type { SharedHeap } from "./AnyStore";
+
 import { fastHash } from "./hash";
 
 export type ObjectSchema = Record<string, unknown>;
@@ -27,6 +28,7 @@ export class SharedObj<T extends ObjectSchema = ObjectSchema> {
     public readonly heapID: bigint,
     protected store: SharedHeap,
     private readonly _schemaKey: bigint,
+    private readonly _schemaSize: number,
     initialData: T | null = null,
   ) {
     this.initialData = initialData;
@@ -34,6 +36,10 @@ export class SharedObj<T extends ObjectSchema = ObjectSchema> {
 
   schemaKey(): bigint {
     return this._schemaKey;
+  }
+
+  schemaSize(): number {
+    return this._schemaSize;
   }
 
   takeInitialData(): T {
@@ -45,6 +51,7 @@ export class SharedObj<T extends ObjectSchema = ObjectSchema> {
   static schema<T extends ObjectSchema>(schema: T): SchemaConstructor<T> {
     const keys = Object.keys(schema);
     const schemaKey = fastHash(JSON.stringify(keys));
+    const schemaSize = keys.length;
 
     class SharedObjImpl extends SharedObj<T> {
       constructor(
@@ -52,13 +59,13 @@ export class SharedObj<T extends ObjectSchema = ObjectSchema> {
         store: SharedHeap,
         initialData: T | null = null,
       ) {
-        super(heapID, store, schemaKey, initialData);
+        super(heapID, store, schemaKey, schemaSize, initialData);
       }
 
       static from(data: T, store?: SharedHeap): SharedObjInstance<T> {
         if (store) {
           const obj = new SharedObjImpl(
-            store.createSharedObj(schemaKey),
+            store.createSharedObj(schemaKey, schemaSize),
             store,
           );
           keys.forEach((key) => {
@@ -92,8 +99,8 @@ export class SharedObj<T extends ObjectSchema = ObjectSchema> {
       }
     }
 
-    keys.forEach((key) => {
-      const propertyKey = fastHash(key);
+    keys.forEach((key, index) => {
+      const propertyKey = BigInt(index);
       Object.defineProperty(SharedObjImpl.prototype, key, {
         get(this: SharedObj<T>) {
           return this.store["getSharedObjectProperty"](
