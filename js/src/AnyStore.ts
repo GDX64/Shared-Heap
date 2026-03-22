@@ -115,34 +115,18 @@ export class SharedHeap {
   }
 
   createObject<T>(initial: T): T & { heapID: bigint } {
-    let id;
-    if (isSharedObjInst(initial)) {
-      id = this.mod.create_shared_obj(
-        initial.schemaKey(),
-        initial.schemaSize(),
-      );
-      const obj = this.createHandlerForID(id);
-      const initialData = initial.takeInitialData();
-      for (const key in initialData) {
-        (obj as any)[key] = (initialData as any)[key];
-      }
-      return obj;
-    }
-
-    if (isSharedArrayInst(initial)) {
-      id = this.mod.create_array();
-      const obj = this.createHandlerForID(id);
-      for (const val of initial.takeInitialItems()) {
-        obj.push(val);
-      }
-      return obj;
-    }
-    id = this.mod.create_object();
+    const id = this.mod.create_object();
     const obj = this.createHandlerForID(id);
     for (const key in initial) {
       const value = (initial as any)[key];
       obj[key] = value;
     }
+    return obj;
+  }
+
+  createSharedArray<T>(): SharedArray<T> {
+    const id = this.mod.create_array();
+    const obj = this.createHandlerForID(id);
     return obj;
   }
 
@@ -257,23 +241,11 @@ export class SharedHeap {
 
   private pushSomething(value: unknown): void {
     if (isSharedObjInst(value)) {
-      if (value.heapID === 0n) {
-        const obj = this.createObject(value);
-        this.mod.something_push_ref_to_stack(obj.heapID);
-        return;
-      }
       this.mod.something_push_ref_to_stack(value.heapID);
       return;
     }
 
     if (isSharedArrayInst(value)) {
-      // If it's a SharedArray marker (heapID 0n), create a new array
-      if (value.heapID === 0n) {
-        const arr = this.createObject(value);
-        this.mod.something_push_ref_to_stack(arr.heapID);
-        return;
-      }
-      // Otherwise, push the existing array reference
       this.mod.something_push_ref_to_stack(value.heapID);
       return;
     }

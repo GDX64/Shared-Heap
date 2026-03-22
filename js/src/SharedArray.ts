@@ -1,15 +1,16 @@
 import type { SharedHeap } from "./AnyStore";
 
 export class SharedArray<T = any> {
-  private initialItems: T[] | null = null;
   constructor(
     public readonly heapID: bigint,
     private store: SharedHeap,
   ) {}
 
-  static from<T>(arr: readonly T[]): SharedArray<T> {
-    const sharedArray = new SharedArray(0n, null as any);
-    sharedArray.initialItems = [...arr];
+  static from<T>(arr: readonly T[], db: SharedHeap): SharedArray<T> {
+    const sharedArray = db.createSharedArray<T>();
+    for (let i = 0; i < arr.length; i++) {
+      sharedArray.push(arr[i]);
+    }
     return sharedArray;
   }
 
@@ -21,12 +22,6 @@ export class SharedArray<T = any> {
     throw new Error(
       "Length property is read-only. Use push/pop/shift/unshift/splice to modify the array.",
     );
-  }
-
-  takeInitialItems(): T[] {
-    const result = this.initialItems;
-    this.initialItems = null;
-    return result ?? [];
   }
 
   get(index: number): T {

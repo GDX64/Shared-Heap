@@ -41,7 +41,7 @@ describe("hello", () => {
 
   test("arrays", async () => {
     const db = await SharedHeap.create();
-    const obj = db.createObject({ arr: SharedArray.from([1]) });
+    const obj = db.createObject({ arr: SharedArray.from([1], db) });
     expect(obj.arr.get(0)).toBe(1);
     expect(obj.arr.get(1)).toBeNullable();
     expect(obj.arr.length).toBe(1);
@@ -57,7 +57,7 @@ describe("hello", () => {
   test("array object", async () => {
     const db = await SharedHeap.create();
     const obj = db.createObject({
-      arr: SharedArray.from([{ name: "hello", age: 30 }]),
+      arr: SharedArray.from([{ name: "hello", age: 30 }], db),
     });
     expect(obj.arr instanceof SharedArray).toBe(true);
 

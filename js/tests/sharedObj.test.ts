@@ -32,7 +32,7 @@ describe("SharedObj", () => {
     db.registerObjectSchema(User);
 
     const root = db.createObject({
-      user: User.from({ id: 1, name: "alice" }),
+      user: User.from({ id: 1, name: "alice" }, db),
     });
 
     expect(root.user.id).toBe(1);
