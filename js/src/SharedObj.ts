@@ -99,8 +99,7 @@ export class SharedObj<T extends ObjectSchema = ObjectSchema> {
       }
     }
 
-    keys.forEach((key, index) => {
-      const propertyKey = BigInt(index);
+    keys.forEach((key, propertyKey) => {
       Object.defineProperty(SharedObjImpl.prototype, key, {
         get(this: SharedObj<T>) {
           return this.store["getSharedObjectProperty"](

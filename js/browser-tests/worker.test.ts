@@ -2,6 +2,7 @@ import { SharedHeap } from "../src/AnyStore";
 import { test, describe, expect } from "vitest";
 import Worker from "./worker?worker";
 import { SharedArray } from "../src/SharedArray";
+import { SharedObj } from "../src/lib";
 
 describe("worker window", async () => {
   const db = await SharedHeap.create();
@@ -86,5 +87,21 @@ describe("worker window", async () => {
       return item.name === "worker" + index;
     });
     expect(allCorrect).toBe(true);
+  });
+});
+
+describe("shared obj", () => {
+  test("shared obj", async () => {
+    const db = await SharedHeap.create();
+    const CounterSchema = SharedObj.schema({
+      value: 0,
+    });
+    db.registerObjectSchema(CounterSchema);
+    const counter = CounterSchema.from({ value: 0 }, db);
+
+    for (let i = 0; i < 1000_000; i++) {
+      counter.value += 1;
+    }
+    expect(counter.value).toBe(1000_000);
   });
 });

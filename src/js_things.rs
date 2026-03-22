@@ -71,6 +71,20 @@ pub fn get_object_property(object_id: u64, key: u64) {
 }
 
 #[wasm_bindgen]
+pub fn get_shared_object_property(object_id: u64, key: usize) {
+    if let Some(obj) = globals().get_shared_object_property(object_id, key) {
+        push_to_js_stack(&obj, globals());
+    }
+}
+
+#[wasm_bindgen]
+pub fn set_shared_object_property(object_id: u64, key: usize) {
+    if let Some(value) = pop_from_something_stack() {
+        globals().set_shared_object_property(object_id, key, value);
+    }
+}
+
+#[wasm_bindgen]
 pub fn increment_object_references(object_id: u64) -> bool {
     return globals()
         .increment_object_references(object_id)

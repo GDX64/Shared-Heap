@@ -243,6 +243,37 @@ impl Storage {
         )
     }
 
+    pub fn get_shared_object_property(&self, object_id: u64, key: usize) -> Option<Something> {
+        let object_key = ObjectKey::from(object_id);
+        with_local_object(
+            object_key,
+            |object| object.get_shared_object_property(key),
+            || {
+                self.get_inner_object(object_key)?
+                    .get_shared_object_property(key)
+            },
+        )
+    }
+
+    pub fn set_shared_object_property(&self, object_id: u64, key: usize, value: Something) {
+        let object_key = ObjectKey::from(object_id);
+        let v1 = value.clone();
+        let v2 = value;
+        with_local_object(
+            object_key,
+            |object| {
+                object.set_shared_object_property(key, v1);
+            },
+            || {
+                let object = match self.get_inner_object(object_key) {
+                    Some(object) => object,
+                    None => return,
+                };
+                object.set_shared_object_property(key, v2);
+            },
+        )
+    }
+
     pub fn delete_object_property(&self, object_id: u64, key: u64) -> Option<Something> {
         let object_key = ObjectKey::from(object_id);
         let property_key = ObjectKey::from(key);

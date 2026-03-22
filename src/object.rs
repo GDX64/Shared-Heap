@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Weak};
 
 use crate::object_kinds::{
@@ -138,16 +139,8 @@ impl Object {
 
     pub fn set_property(&self, key: ObjectKey, value: Something) -> Option<Something> {
         let mut inner = self.lock_inner();
-        let index = <ObjectKey as Into<u64>>::into(key) as usize;
-        match &mut *inner {
+        match inner.deref_mut() {
             HeapObj::Object(obj) => obj.properties.insert(key, value),
-            HeapObj::SharedObj(obj) => {
-                if let Some(existing) = obj.properties.get_mut(index) {
-                    Some(std::mem::replace(existing, value))
-                } else {
-                    None
-                }
-            }
             _ => {
                 panic!("Cannot set property on non-object");
             }
@@ -156,12 +149,38 @@ impl Object {
 
     pub fn get_property(&self, key: ObjectKey) -> Option<Something> {
         let inner = self.lock_inner();
-        let index = <ObjectKey as Into<u64>>::into(key) as usize;
-        match &*inner {
+
+        match inner.deref() {
             HeapObj::Object(obj) => obj.properties.get(&key).cloned(),
-            HeapObj::SharedObj(obj) => obj.properties.get(index).cloned(),
             _ => {
                 panic!("Cannot get property from non-object");
+            }
+        }
+    }
+
+    pub fn set_shared_object_property(&self, key: usize, value: Something) -> Option<Something> {
+        let mut inner = self.lock_inner();
+        match inner.deref_mut() {
+            HeapObj::SharedObj(obj) => {
+                if let Some(existing) = obj.properties.get_mut(key) {
+                    Some(std::mem::replace(existing, value))
+                } else {
+                    None
+                }
+            }
+            _ => {
+                panic!("Cannot set property on non-shared-object");
+            }
+        }
+    }
+
+    pub fn get_shared_object_property(&self, key: usize) -> Option<Something> {
+        let inner = self.lock_inner();
+
+        match inner.deref() {
+            HeapObj::SharedObj(obj) => obj.properties.get(key).cloned(),
+            _ => {
+                panic!("Cannot get property from non-shared-object");
             }
         }
     }

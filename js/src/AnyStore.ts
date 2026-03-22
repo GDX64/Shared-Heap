@@ -193,9 +193,9 @@ export class SharedHeap {
 
   private getSharedObjectProperty(
     objID: bigint,
-    prop: bigint,
+    prop: number,
   ): Something["value"] {
-    this.mod.get_object_property(objID, prop);
+    this.mod.get_shared_object_property(objID, prop);
     return this.decodePoppedValue();
   }
 
@@ -206,11 +206,11 @@ export class SharedHeap {
 
   private setSharedObjectProperty(
     objID: bigint,
-    prop: bigint,
+    prop: number,
     value: unknown,
   ): void {
     this.pushSomething(value);
-    this.mod.set_object_property(objID, prop);
+    this.mod.set_shared_object_property(objID, prop);
   }
 
   private arrayGetLength(objID: bigint): number {
