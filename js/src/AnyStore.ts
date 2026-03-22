@@ -146,10 +146,11 @@ export class SharedHeap {
       const schemaKey = get_shared_obj_schema(id);
       const ctor = this.sharedObjConstructors.get(schemaKey);
       if (!ctor) {
-        obj = createProxyForObject(id, this);
-      } else {
-        obj = ctor.fromHeapID(id, this);
+        throw Error(
+          "No constructor found for shared object with schema key " + schemaKey,
+        );
       }
+      obj = ctor.fromHeapID(id, this);
     } else {
       obj = createProxyForObject(id, this);
     }
