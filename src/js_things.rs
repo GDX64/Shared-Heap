@@ -39,6 +39,7 @@ fn pop_from_something_stack() -> Option<Something> {
 
 static mut GLOBALS_PTR: *mut Storage = ptr::null_mut();
 
+#[inline(always)]
 fn globals() -> &'static Storage {
     unsafe { &*GLOBALS_PTR }
 }
@@ -66,14 +67,14 @@ pub fn lock_pointer(object_id: u64) -> *const i32 {
 #[wasm_bindgen]
 pub fn get_object_property(object_id: u64, key: u64) {
     if let Some(obj) = globals().get_object_property(object_id, key) {
-        push_to_js_stack(&obj, globals());
+        push_to_js_stack(&obj);
     }
 }
 
 #[wasm_bindgen]
 pub fn get_shared_object_property(object_id: u64, key: usize) {
     if let Some(obj) = globals().get_shared_object_property(object_id, key) {
-        push_to_js_stack(&obj, globals());
+        push_to_js_stack(&obj);
     }
 }
 
@@ -151,7 +152,7 @@ pub fn array_push(array_id: u64) {
 #[wasm_bindgen]
 pub fn array_pop(array_id: u64) {
     if let Some(obj) = globals().array_pop(array_id) {
-        push_to_js_stack(&obj, globals());
+        push_to_js_stack(&obj);
     }
 }
 
@@ -165,7 +166,7 @@ pub fn array_set_index(array_id: u64, index: u32) {
 #[wasm_bindgen]
 pub fn array_get_index(array_id: u64, index: u32) {
     if let Some(obj) = globals().array_get_index(array_id, index as usize) {
-        push_to_js_stack(&obj, globals());
+        push_to_js_stack(&obj);
     }
 }
 
@@ -249,7 +250,7 @@ pub fn something_push_blob() {
     push_something(something);
 }
 
-fn push_to_js_stack(value: &Something, _db: &Storage) {
+fn push_to_js_stack(value: &Something) {
     match value {
         Something::Int(v) => {
             safe_put_i32(*v);
