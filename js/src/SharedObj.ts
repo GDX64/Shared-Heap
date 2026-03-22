@@ -2,10 +2,14 @@ import type { SharedHeap } from "./AnyStore";
 
 import { fastHash } from "./hash";
 
-export type ObjectSchema = Record<string, unknown>;
+export type ObjectSchema = Record<string, SchemaValue<any>>;
+
+type SchemaValue<T> = {
+  __phantom: T;
+};
 
 type SharedObjInstance<T extends ObjectSchema> = SharedObj & {
-  [K in keyof T]: T[K];
+  [K in keyof T]: T[K]["__phantom"];
 };
 
 type SharedObjDefinition<T extends ObjectSchema> = {
@@ -15,10 +19,14 @@ type SharedObjDefinition<T extends ObjectSchema> = {
 };
 
 export type SharedObjConstructor<T extends ObjectSchema> = {
-  from(data: T, store: SharedHeap): SharedObjInstance<T>;
+  from(data: ExtractValues<T>, store: SharedHeap): SharedObjInstance<T>;
   fromHeapID(heapID: bigint, store: SharedHeap): SharedObjInstance<T>;
   schemaKey(): bigint;
   definition(): SharedObjDefinition<T>;
+};
+
+type ExtractValues<T extends ObjectSchema> = {
+  [K in keyof T]: T[K]["__phantom"];
 };
 
 export class SharedObj {
@@ -35,6 +43,10 @@ export class SharedObj {
 
   schemaSize(): number {
     return this._schemaSize;
+  }
+
+  static value<T>(): SchemaValue<T> {
+    return {} as SchemaValue<T>;
   }
 
   static schema<T extends ObjectSchema>(schema: T): SchemaConstructor<T> {

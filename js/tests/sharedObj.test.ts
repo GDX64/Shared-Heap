@@ -9,8 +9,8 @@ describe("SharedObj", () => {
   test("schema-based object reads and writes", async () => {
     const db = await SharedHeap.create();
     const Schema = SharedObj.schema({
-      foo: 0,
-      name: "alice",
+      foo: SharedObj.value<number>(),
+      name: SharedObj.value<string>(),
     });
     db.registerObjectSchema(Schema);
 
@@ -26,8 +26,8 @@ describe("SharedObj", () => {
   test("marker instance can be nested in createObject", async () => {
     const db = await SharedHeap.create();
     const User = SharedObj.schema({
-      id: 0,
-      name: "",
+      id: SharedObj.value<number>(),
+      name: SharedObj.value<string>(),
     });
     db.registerObjectSchema(User);
 
