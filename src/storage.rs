@@ -2,15 +2,19 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{BuildHasher, Hasher};
 
-use crate::object::{HeapObjKind, Object, WeakObject};
+use crate::object::{HeapObjKind, Object, ObjectKey, WeakObject};
 use crate::value::Something;
 use crate::w_mutex::{MutexWriteGuard, WasmMutex};
 
 thread_local! {
-    static LOCAL_OBJECTS: RefCell<HashMap<u64, Object, FastIDHasher>> = RefCell::new(HashMap::with_hasher(FastIDHasher::new()));
+    static LOCAL_OBJECTS: RefCell<HashMap<ObjectKey, Object, FastIDHasher>> = RefCell::new(HashMap::with_hasher(FastIDHasher::new()));
 }
 
-fn with_local_object<FLocal, FMissing, R>(id: u64, on_local: FLocal, on_missing: FMissing) -> R
+fn with_local_object<FLocal, FMissing, R>(
+    id: ObjectKey,
+    on_local: FLocal,
+    on_missing: FMissing,
+) -> R
 where
     FLocal: FnOnce(&Object) -> R,
     FMissing: FnOnce() -> R,
@@ -25,13 +29,13 @@ where
     })
 }
 
-fn local_insert(id: u64, object: Object) {
+fn local_insert(id: ObjectKey, object: Object) {
     LOCAL_OBJECTS.with(|objects| {
         objects.borrow_mut().insert(id, object);
     });
 }
 
-fn local_remove(id: u64) -> Option<Object> {
+fn local_remove(id: ObjectKey) -> Option<Object> {
     LOCAL_OBJECTS.with(|objects| objects.borrow_mut().remove(&id))
 }
 
@@ -41,7 +45,7 @@ pub enum ObjectKind {
 }
 
 struct InnerStorage {
-    collection: HashMap<u64, WeakObject, FastIDHasher>,
+    collection: HashMap<ObjectKey, WeakObject, FastIDHasher>,
     last_id: u64,
 }
 
@@ -49,7 +53,7 @@ pub struct Storage {
     inner: WasmMutex<InnerStorage>,
 }
 
-fn cleanup_dead(inner: &mut InnerStorage, id: u64) {
+fn cleanup_dead(inner: &mut InnerStorage, id: ObjectKey) {
     let remove = inner
         .collection
         .get(&id)
@@ -75,8 +79,9 @@ impl Storage {
     }
 
     pub fn lock(&self, id: u64) -> bool {
+        let object_key = ObjectKey::from(id);
         with_local_object(
-            id,
+            object_key,
             |object| {
                 object.lock();
                 true
@@ -88,8 +93,9 @@ impl Storage {
     }
 
     pub fn unlock(&self, id: u64) -> bool {
+        let object_key = ObjectKey::from(id);
         with_local_object(
-            id,
+            object_key,
             |object| {
                 object.unlock();
                 true
@@ -101,8 +107,9 @@ impl Storage {
     }
 
     pub fn try_lock(&self, id: u64) -> bool {
+        let object_key = ObjectKey::from(id);
         with_local_object(
-            id,
+            object_key,
             |object| object.try_lock(),
             || {
                 panic!("Cannot lock object that is not in local storage. Object ID: {id}");
@@ -111,8 +118,9 @@ impl Storage {
     }
 
     pub fn lock_pointer(&self, id: u64) -> *const i32 {
+        let object_key = ObjectKey::from(id);
         with_local_object(
-            id,
+            object_key,
             |object| object.lock_pointer(),
             || {
                 panic!("Cannot lock object that is not in local storage. Object ID: {id}");
@@ -121,32 +129,35 @@ impl Storage {
     }
 
     pub fn try_drop(&self, id: u64) -> Option<()> {
-        let had_local = local_remove(id).is_some();
+        let object_key = ObjectKey::from(id);
+        let had_local = local_remove(object_key).is_some();
         let mut inner = self.inner_guard();
-        if !had_local && !inner.collection.contains_key(&id) {
+        if !had_local && !inner.collection.contains_key(&object_key) {
             return None;
         }
-        cleanup_dead(&mut inner, id);
+        cleanup_dead(&mut inner, object_key);
         Some(())
     }
 
     pub fn get_reference_count(&self, id: u64) -> Option<u32> {
+        let object_key = ObjectKey::from(id);
         with_local_object(
-            id,
+            object_key,
             |object| Some(object.strong_count() as u32),
             || {
                 let inner = self.inner_guard();
-                let obj = inner.collection.get(&id)?;
+                let obj = inner.collection.get(&object_key)?;
                 Some(obj.strong_count() as u32)
             },
         )
     }
 
     pub fn increment_object_references(&self, id: u64) -> Option<bool> {
+        let object_key = ObjectKey::from(id);
         with_local_object(
-            id,
+            object_key,
             |_object| Some(true),
-            || self.get_inner_object(id).map(|_| true),
+            || self.get_inner_object(object_key).map(|_| true),
         )
     }
 
@@ -155,10 +166,11 @@ impl Storage {
         let base_id = inner.last_id;
         inner.last_id += 1;
         let id = kind.mask_id(base_id);
+        let object_key = ObjectKey::from(id);
 
         let object = Object::new(kind);
-        inner.collection.insert(id, object.downgrade());
-        local_insert(id, object);
+        inner.collection.insert(object_key, object.downgrade());
+        local_insert(object_key, object);
         id
     }
 
@@ -167,10 +179,11 @@ impl Storage {
         let base_id = inner.last_id;
         inner.last_id += 1;
         let id = HeapObjKind::BinView.mask_id(base_id);
+        let object_key = ObjectKey::from(id);
 
         let object = Object::new_bin_view(schema_key, size);
-        inner.collection.insert(id, object.downgrade());
-        local_insert(id, object);
+        inner.collection.insert(object_key, object.downgrade());
+        local_insert(object_key, object);
         id
     }
 
@@ -179,82 +192,99 @@ impl Storage {
         let base_id = inner.last_id;
         inner.last_id += 1;
         let id = HeapObjKind::SharedObj.mask_id(base_id);
+        let object_key = ObjectKey::from(id);
 
         let object = Object::new_shared_obj(schema_key);
-        inner.collection.insert(id, object.downgrade());
-        local_insert(id, object);
+        inner.collection.insert(object_key, object.downgrade());
+        local_insert(object_key, object);
         id
     }
 
     pub fn get_object(&self, id: u64) -> Option<Object> {
+        let object_key = ObjectKey::from(id);
         with_local_object(
-            id,
+            object_key,
             |object| Some(object.clone()),
-            || self.get_inner_object(id),
+            || self.get_inner_object(object_key),
         )
     }
 
     pub fn set_object_property(&self, object_id: u64, key: u64, value: Something) {
+        let object_key = ObjectKey::from(object_id);
+        let property_key = ObjectKey::from(key);
         let v1 = value.clone();
         let v2 = value;
         with_local_object(
-            object_id,
+            object_key,
             |object| {
-                object.set_property(key, v1);
+                object.set_property(property_key, v1);
             },
             || {
-                let object = match self.get_inner_object(object_id) {
+                let object = match self.get_inner_object(object_key) {
                     Some(object) => object,
                     None => return,
                 };
-                object.set_property(key, v2);
+                object.set_property(property_key, v2);
             },
         )
     }
 
     pub fn get_object_property(&self, object_id: u64, key: u64) -> Option<Something> {
+        let object_key = ObjectKey::from(object_id);
+        let property_key = ObjectKey::from(key);
         with_local_object(
-            object_id,
-            |object| object.get_property(key),
-            || self.get_inner_object(object_id)?.get_property(key),
+            object_key,
+            |object| object.get_property(property_key),
+            || {
+                self.get_inner_object(object_key)?
+                    .get_property(property_key)
+            },
         )
     }
 
     pub fn delete_object_property(&self, object_id: u64, key: u64) -> Option<Something> {
+        let object_key = ObjectKey::from(object_id);
+        let property_key = ObjectKey::from(key);
         let prop = with_local_object(
-            object_id,
-            |object| object.delete_property(key),
-            || self.get_inner_object(object_id)?.delete_property(key),
+            object_key,
+            |object| object.delete_property(property_key),
+            || {
+                self.get_inner_object(object_key)?
+                    .delete_property(property_key)
+            },
         )?;
         Some(prop)
     }
 
     pub fn array_len(&self, array_id: u64) -> Option<usize> {
+        let object_key = ObjectKey::from(array_id);
         with_local_object(
-            array_id,
+            object_key,
             |object| Some(object.len()),
-            || Some(self.get_inner_object(array_id)?.len()),
+            || Some(self.get_inner_object(object_key)?.len()),
         )
     }
 
     pub fn array_pop(&self, array_id: u64) -> Option<Something> {
+        let object_key = ObjectKey::from(array_id);
         with_local_object(
-            array_id,
+            object_key,
             |object| object.pop(),
-            || self.get_inner_object(array_id)?.pop(),
+            || self.get_inner_object(object_key)?.pop(),
         )
     }
 
     pub fn array_set_index(&self, array_id: u64, index: usize, value: Something) {
+        let object_key = ObjectKey::from(array_id);
         let v1 = value.clone();
         let v2 = value;
         with_local_object(
-            array_id,
+            object_key,
             |object| {
                 object.set_index(index, v1);
             },
             || {
-                let object = match self.get_inner_object(array_id) {
+                let object = match self.get_inner_object(object_key) {
                     Some(object) => object,
                     None => return,
                 };
@@ -264,14 +294,15 @@ impl Storage {
     }
 
     pub fn array_push(&self, array_id: u64, value: Something) {
+        let object_key = ObjectKey::from(array_id);
         let v1 = value.clone();
         with_local_object(
-            array_id,
+            object_key,
             |object| {
                 object.push(value);
             },
             || {
-                let object = match self.get_inner_object(array_id) {
+                let object = match self.get_inner_object(object_key) {
                     Some(object) => object,
                     None => return,
                 };
@@ -281,10 +312,11 @@ impl Storage {
     }
 
     pub fn array_get_index(&self, array_id: u64, index: usize) -> Option<Something> {
+        let object_key = ObjectKey::from(array_id);
         with_local_object(
-            array_id,
+            object_key,
             |object| object.get_index(index),
-            || self.get_inner_object(array_id)?.get_index(index),
+            || self.get_inner_object(object_key)?.get_index(index),
         )
     }
 
@@ -292,10 +324,11 @@ impl Storage {
         if !HeapObjKind::is_bin_view_id(bin_view_id) {
             return None;
         }
+        let object_key = ObjectKey::from(bin_view_id);
         with_local_object(
-            bin_view_id,
+            object_key,
             |object| Some(object.get_bin_view_schema()),
-            || Some(self.get_inner_object(bin_view_id)?.get_bin_view_schema()),
+            || Some(self.get_inner_object(object_key)?.get_bin_view_schema()),
         )
     }
 
@@ -303,10 +336,11 @@ impl Storage {
         if !HeapObjKind::is_bin_view_id(bin_view_id) {
             return None;
         }
+        let object_key = ObjectKey::from(bin_view_id);
         with_local_object(
-            bin_view_id,
+            object_key,
             |object| Some(object.get_bin_view_ptr()),
-            || Some(self.get_inner_object(bin_view_id)?.get_bin_view_ptr()),
+            || Some(self.get_inner_object(object_key)?.get_bin_view_ptr()),
         )
     }
 
@@ -314,19 +348,15 @@ impl Storage {
         if !HeapObjKind::is_shared_obj_id(shared_obj_id) {
             return None;
         }
+        let object_key = ObjectKey::from(shared_obj_id);
         with_local_object(
-            shared_obj_id,
+            object_key,
             |object| Some(object.get_shared_obj_schema()),
-            || {
-                Some(
-                    self.get_inner_object(shared_obj_id)?
-                        .get_shared_obj_schema(),
-                )
-            },
+            || Some(self.get_inner_object(object_key)?.get_shared_obj_schema()),
         )
     }
 
-    fn get_inner_object(&self, id: u64) -> Option<Object> {
+    fn get_inner_object(&self, id: ObjectKey) -> Option<Object> {
         let inner = self.inner_guard();
         let weak = inner.collection.get(&id)?;
         let object = weak.upgrade()?;
@@ -335,8 +365,9 @@ impl Storage {
     }
 
     pub fn create_reference(&self, id: u64) -> Option<Something> {
+        let object_key = ObjectKey::from(id);
         with_local_object(
-            id,
+            object_key,
             |object| {
                 Some(Something::Ref {
                     id,
@@ -346,7 +377,7 @@ impl Storage {
             || {
                 Some(Something::Ref {
                     id,
-                    object: self.get_inner_object(id)?,
+                    object: self.get_inner_object(object_key)?,
                 })
             },
         )

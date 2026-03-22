@@ -42,6 +42,45 @@ impl HeapObjKind {
     }
 }
 
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ObjectKey {
+    key: u64,
+}
+
+impl ObjectKey {
+    pub fn new(key: u64) -> Self {
+        ObjectKey { key }
+    }
+
+    pub fn is_array_id(&self) -> bool {
+        HeapObjKind::is_array_id(self.key)
+    }
+
+    pub fn is_object_id(&self) -> bool {
+        HeapObjKind::is_object_id(self.key)
+    }
+
+    pub fn is_bin_view_id(&self) -> bool {
+        HeapObjKind::is_bin_view_id(self.key)
+    }
+
+    pub fn is_shared_obj_id(&self) -> bool {
+        HeapObjKind::is_shared_obj_id(self.key)
+    }
+}
+
+impl Into<u64> for ObjectKey {
+    fn into(self) -> u64 {
+        self.key
+    }
+}
+
+impl From<u64> for ObjectKey {
+    fn from(value: u64) -> Self {
+        ObjectKey { key: value }
+    }
+}
+
 pub struct Object {
     inner: Arc<WasmMutex<HeapObj>>,
 }
@@ -51,7 +90,7 @@ pub struct WeakObject {
 }
 
 struct HashObject {
-    properties: HashMap<u64, Something>,
+    properties: HashMap<ObjectKey, Something>,
 }
 
 struct BinViewObject {
@@ -61,7 +100,7 @@ struct BinViewObject {
 
 struct SharedObjObject {
     schema_key: u64,
-    properties: HashMap<u64, Something>,
+    properties: HashMap<ObjectKey, Something>,
 }
 
 impl Object {
@@ -186,7 +225,7 @@ impl Object {
         }
     }
 
-    pub fn set_property(&self, key: u64, value: Something) -> Option<Something> {
+    pub fn set_property(&self, key: ObjectKey, value: Something) -> Option<Something> {
         let mut inner = self.lock_inner();
         match &mut *inner {
             HeapObj::Object(obj) => obj.properties.insert(key, value),
@@ -197,7 +236,7 @@ impl Object {
         }
     }
 
-    pub fn get_property(&self, key: u64) -> Option<Something> {
+    pub fn get_property(&self, key: ObjectKey) -> Option<Something> {
         let inner = self.lock_inner();
         match &*inner {
             HeapObj::Object(obj) => obj.properties.get(&key).cloned(),
@@ -208,7 +247,7 @@ impl Object {
         }
     }
 
-    pub fn delete_property(&self, key: u64) -> Option<Something> {
+    pub fn delete_property(&self, key: ObjectKey) -> Option<Something> {
         let mut inner = self.lock_inner();
         match &mut *inner {
             HeapObj::Object(obj) => obj.properties.remove(&key),
@@ -219,7 +258,7 @@ impl Object {
         }
     }
 
-    pub fn take_properties(&self) -> HashMap<u64, Something> {
+    pub fn take_properties(&self) -> HashMap<ObjectKey, Something> {
         let mut inner = self.lock_inner();
         match &mut *inner {
             HeapObj::Object(obj) => std::mem::take(&mut obj.properties),
