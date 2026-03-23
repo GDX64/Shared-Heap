@@ -70,7 +70,7 @@ describe("worker window", async () => {
 
   test("parallel workers push to same shared array", async () => {
     const root = db.createObject({
-      arr: SharedArray.from([{ name: "worker0" }]),
+      arr: SharedArray.from([{ name: "worker0" }], db),
     });
     const rootID = SharedHeap.getIDOfProxy(root)!;
     const iterations = 1_500;
@@ -94,7 +94,7 @@ describe("shared obj", () => {
   test("shared obj", async () => {
     const db = await SharedHeap.create();
     const CounterSchema = SharedObj.schema({
-      value: 0,
+      value: SharedObj.value<number>(),
     });
     db.registerObjectSchema(CounterSchema);
     const counter = CounterSchema.from({ value: 0 }, db);

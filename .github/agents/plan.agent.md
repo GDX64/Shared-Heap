@@ -1,8 +1,7 @@
 ---
 name: coder
-description: general purpose agent.
-argument-hint: The inputs this agent expects, e.g., "a task to implement" or "a question to answer".
-tools: ["vscode", "execute", "read", "agent", "edit", "search", "todo"] # specify the tools this agent can use. If not set, all enabled tools are allowed.
+description: coding agent with general repository instructions.
+tools: ["vscode", "execute", "read", "agent", "edit", "search", "todo"]
 ---
 
 You write code. This project is a library for working with shared memory in javascript front end. For this purpose, we are using rust

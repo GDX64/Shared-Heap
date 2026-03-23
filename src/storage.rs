@@ -1,14 +1,13 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 
-use crate::fast_id_hasher::FastIDHasher;
 use crate::object::{Object, WeakObject};
+use crate::object_collection::ObjectCollection;
 use crate::object_kinds::{HeapObjKind, ObjectKey};
 use crate::value::Something;
 use crate::w_mutex::{MutexWriteGuard, WasmMutex};
 
 thread_local! {
-    static LOCAL_OBJECTS: RefCell<HashMap<ObjectKey, Object, FastIDHasher>> = RefCell::new(HashMap::with_hasher(FastIDHasher::new()));
+    static LOCAL_OBJECTS: RefCell<ObjectCollection<Object>> = RefCell::new(ObjectCollection::new());
 }
 
 fn with_local_object<FLocal, FMissing, R>(
@@ -22,7 +21,7 @@ where
 {
     LOCAL_OBJECTS.with(|objects| {
         let objects = objects.borrow();
-        if let Some(object) = objects.get(&id) {
+        if let Some(object) = objects.get(id) {
             return on_local(object);
         }
         drop(objects);
@@ -37,7 +36,7 @@ fn local_insert(id: ObjectKey, object: Object) {
 }
 
 fn local_remove(id: ObjectKey) -> Option<Object> {
-    LOCAL_OBJECTS.with(|objects| objects.borrow_mut().remove(&id))
+    LOCAL_OBJECTS.with(|objects| objects.borrow_mut().remove(id))
 }
 
 pub enum ObjectKind {
@@ -46,8 +45,7 @@ pub enum ObjectKind {
 }
 
 struct InnerStorage {
-    collection: HashMap<ObjectKey, WeakObject, FastIDHasher>,
-    last_id: u64,
+    collection: ObjectCollection<WeakObject>,
 }
 
 pub struct Storage {
@@ -57,11 +55,11 @@ pub struct Storage {
 fn cleanup_dead(inner: &mut InnerStorage, id: ObjectKey) {
     let remove = inner
         .collection
-        .get(&id)
+        .get(id)
         .map(|w| w.strong_count() == 0)
         .unwrap_or(false);
     if remove {
-        inner.collection.remove(&id);
+        inner.collection.remove(id);
     }
 }
 
@@ -69,8 +67,7 @@ impl Storage {
     pub fn new() -> Self {
         Storage {
             inner: WasmMutex::new(InnerStorage {
-                collection: HashMap::with_hasher(FastIDHasher::new()),
-                last_id: 0,
+                collection: ObjectCollection::new(),
             }),
         }
     }
@@ -133,7 +130,7 @@ impl Storage {
         let object_key = ObjectKey::from(id);
         let had_local = local_remove(object_key).is_some();
         let mut inner = self.inner_guard();
-        if !had_local && !inner.collection.contains_key(&object_key) {
+        if !had_local && !inner.collection.contains_key(object_key) {
             return None;
         }
         cleanup_dead(&mut inner, object_key);
@@ -147,7 +144,7 @@ impl Storage {
             |object| Some(object.strong_count() as u32),
             || {
                 let inner = self.inner_guard();
-                let obj = inner.collection.get(&object_key)?;
+                let obj = inner.collection.get(object_key)?;
                 Some(obj.strong_count() as u32)
             },
         )
@@ -164,10 +161,8 @@ impl Storage {
 
     pub fn create_object(&self, kind: HeapObjKind) -> u64 {
         let mut inner = self.inner_guard();
-        let base_id = inner.last_id;
-        inner.last_id += 1;
-        let id = kind.mask_id(base_id);
-        let object_key = ObjectKey::from(id);
+        let object_key = inner.collection.create_key(kind);
+        let id: u64 = object_key.into();
 
         let object = Object::new(kind);
         inner.collection.insert(object_key, object.downgrade());
@@ -177,10 +172,8 @@ impl Storage {
 
     pub fn create_bin_view(&self, schema_key: u64, size: usize) -> u64 {
         let mut inner = self.inner_guard();
-        let base_id = inner.last_id;
-        inner.last_id += 1;
-        let id = HeapObjKind::BinView.mask_id(base_id);
-        let object_key = ObjectKey::from(id);
+        let object_key = inner.collection.create_key(HeapObjKind::BinView);
+        let id: u64 = object_key.into();
 
         let object = Object::new_bin_view(schema_key, size);
         inner.collection.insert(object_key, object.downgrade());
@@ -190,10 +183,8 @@ impl Storage {
 
     pub fn create_shared_obj(&self, schema_key: u64, size: usize) -> u64 {
         let mut inner = self.inner_guard();
-        let base_id = inner.last_id;
-        inner.last_id += 1;
-        let id = HeapObjKind::SharedObj.mask_id(base_id);
-        let object_key = ObjectKey::from(id);
+        let object_key = inner.collection.create_key(HeapObjKind::SharedObj);
+        let id: u64 = object_key.into();
 
         let object = Object::new_shared_obj(schema_key, size);
         inner.collection.insert(object_key, object.downgrade());
@@ -393,7 +384,7 @@ impl Storage {
 
     fn get_inner_object(&self, id: ObjectKey) -> Option<Object> {
         let inner = self.inner_guard();
-        let weak = inner.collection.get(&id)?;
+        let weak = inner.collection.get(id)?;
         let object = weak.upgrade()?;
         local_insert(id, object.clone());
         Some(object)
