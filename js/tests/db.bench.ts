@@ -12,10 +12,10 @@ const N = 10_000;
 //User record updates (realistic scenario)
 describe("user record updates", () => {
   const UserSchema = SharedObj.schema({
-    id: 1,
-    name: "John Doe",
-    age: 30,
-    score: 0,
+    id: SharedObj.value<number>(),
+    name: SharedObj.value<string>(),
+    age: SharedObj.value<number>(),
+    score: SharedObj.value<number>(),
   });
   db.registerObjectSchema(UserSchema);
 
@@ -73,10 +73,10 @@ describe("user record updates", () => {
 
 // Array operations
 describe("array push operations", () => {
-  const list = db.createObject({ items: SharedArray.from<number>([]) });
+  const list = db.createObject({ items: SharedArray.from<number>([], db) });
 
   bench("shared heap", () => {
-    list.items = SharedArray.from<number>([]);
+    list.items = SharedArray.from<number>([], db);
     for (let i = 0; i < 1000; i++) {
       list.items.push(i);
     }
@@ -126,9 +126,9 @@ describe("mixed read/write operations", () => {
 // Object property access pattern
 describe("property access pattern", () => {
   const ConfigSchema = SharedObj.schema({
-    enabled: true,
-    count: 0,
-    multiplier: 1.5,
+    enabled: SharedObj.value<boolean>(),
+    count: SharedObj.value<number>(),
+    multiplier: SharedObj.value<number>(),
   });
   db.registerObjectSchema(ConfigSchema);
 

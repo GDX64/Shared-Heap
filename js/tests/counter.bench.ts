@@ -17,14 +17,14 @@ describe("simple counter increment", () => {
     counter: "f64",
   });
   const CounterSchema = SharedObj.schema({
-    value: 0,
+    value: SharedObj.value<number>(),
   });
   db.registerView(BinViewConstructor);
   db.registerObjectSchema(CounterSchema);
   const counter = db.createObject({
     value: 0,
     view: BinViewConstructor.empty(),
-    arr: SharedArray.from([0]),
+    arr: SharedArray.from([0], db),
   });
   const sharedObjCounter = CounterSchema.from({ value: 0 }, db);
   const view = counter.view;
